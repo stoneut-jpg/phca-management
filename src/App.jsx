@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  Menu, X, ChevronRight, CheckCircle2, Search, Calendar, 
+  Menu, X, ChevronRight, ChevronLeft, CheckCircle2, Search, Calendar, 
   MapPin, Phone, User, BookOpen, AlertCircle, ArrowRight, ShieldCheck, Ticket, Sparkles, LogIn, UserPlus, LogOut,
   LayoutDashboard, Users, Bell, MessageSquare, Settings, Lock, Edit2, Trash2, Plus, FileText, Download, Filter
 } from 'lucide-react';
@@ -670,24 +670,65 @@ const NoticePage = ({ navigate }) => {
 };
 
 const HomePage = ({ navigate }) => {
+  const [currentSlide, setCurrentSlide] = useState(0);
+  const slides = [
+    '/images/img_01.jpg',
+    '/images/img_02.jpg',
+    '/images/img_03.jpg'
+  ];
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentSlide((prev) => (prev === slides.length - 1 ? 0 : prev + 1));
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [slides.length]);
+
   return (
     <div className="animate-fadeIn pb-10">
       <section className="relative min-h-[85vh] flex items-center justify-center overflow-hidden pt-20">
-        {/* Background Image */}
-        <div 
-          className="absolute inset-0 bg-cover bg-center bg-no-repeat"
-          style={{ backgroundImage: `url('420222베광김현석_피터하늘문화아카데미발표회3147.jpg')` }}
-        ></div>
+        {/* Slider Backgrounds */}
+        {slides.map((img, index) => (
+          <div
+            key={index}
+            className={`absolute inset-0 transition-opacity duration-1000 ${
+              index === currentSlide ? 'opacity-100 z-0' : 'opacity-0 z-0'
+            }`}
+          >
+            <img src={img} alt={`Main Banner ${index + 1}`} className="w-full h-full object-cover" />
+          </div>
+        ))}
         
         {/* Bright Gradient Overlay for text readability */}
-        <div className="absolute inset-0 bg-gradient-to-b from-white/95 via-white/60 to-sky-50/95 backdrop-blur-[2px]"></div>
+        <div className="absolute inset-0 bg-gradient-to-b from-white/30 via-white/30 to-sky-50/30 backdrop-blur-[2px] z-0"></div>
 
         {/* Decorative Blurs */}
-        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
           <div className="absolute -top-[10%] -right-[10%] w-[500px] h-[500px] rounded-full bg-yellow-300/30 blur-[100px]"></div>
           <div className="absolute -bottom-[10%] left-[20%] w-[600px] h-[600px] rounded-full bg-sky-400/20 blur-[100px]"></div>
         </div>
         
+        {/* Slider Controls */}
+        <div className="absolute inset-0 z-20 flex items-center justify-between px-4 sm:px-8 pointer-events-none">
+          <button onClick={() => setCurrentSlide(prev => prev === 0 ? slides.length - 1 : prev - 1)} className="pointer-events-auto p-2 sm:p-3 rounded-full bg-white/50 text-slate-800 hover:bg-white/80 border border-slate-200 transition-colors backdrop-blur-sm shadow-sm">
+            <ChevronLeft size={24} />
+          </button>
+          <button onClick={() => setCurrentSlide(prev => prev === slides.length - 1 ? 0 : prev + 1)} className="pointer-events-auto p-2 sm:p-3 rounded-full bg-white/50 text-slate-800 hover:bg-white/80 border border-slate-200 transition-colors backdrop-blur-sm shadow-sm">
+            <ChevronRight size={24} />
+          </button>
+        </div>
+        
+        {/* Slider Indicators */}
+        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20 flex space-x-3">
+          {slides.map((_, index) => (
+            <button
+              key={index}
+              onClick={() => setCurrentSlide(index)}
+              className={`h-2.5 rounded-full transition-all shadow-sm ${index === currentSlide ? 'bg-sky-500 w-8' : 'bg-slate-300/80 w-2.5 hover:bg-sky-400'}`}
+            />
+          ))}
+        </div>
+
         <div className="relative z-10 text-center px-4 max-w-5xl mx-auto mt-10">
           <div className="inline-flex items-center gap-2 bg-white/90 backdrop-blur-sm px-5 py-2.5 rounded-full shadow-sm text-sky-600 font-black text-sm mb-6 border border-sky-100">
             <Sparkles size={16} className="text-amber-500" />
@@ -699,7 +740,7 @@ const HomePage = ({ navigate }) => {
               CULTURE ACADEMY
             </span>
           </h1>
-          <p className="text-lg md:text-2xl text-slate-800 font-bold mb-10 max-w-2xl mx-auto leading-relaxed bg-white/40 px-6 py-3 rounded-2xl backdrop-blur-sm shadow-sm inline-block">
+          <p className="text-lg md:text-2xl text-slate-800 font-bold mb-10 max-w-2xl mx-auto leading-relaxed">
             여름방학을 배움과 성장의 시간으로!<br className="hidden md:block"/> 
             {currentGeneration.name} 피터하늘문화 아카데미에 초대합니다!
           </p>
