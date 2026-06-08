@@ -700,7 +700,7 @@ const HomePage = ({ navigate }) => {
         ))}
         
         {/* Bright Gradient Overlay for text readability */}
-        <div className="absolute inset-0 bg-gradient-to-b from-white/30 via-white/30 to-sky-50/30 backdrop-blur-[2px] z-0"></div>
+        <div className="absolute inset-0 bg-gradient-to-b from-white/60 via-white/40 to-sky-50/60 backdrop-blur-sm z-0"></div>
 
         {/* Decorative Blurs */}
         <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
