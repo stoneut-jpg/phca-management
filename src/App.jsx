@@ -1,13 +1,89 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Menu, X, ChevronRight, ChevronLeft, CheckCircle2, Search, Calendar, 
   MapPin, Phone, User, BookOpen, AlertCircle, ArrowRight, ShieldCheck, Ticket, Sparkles, LogIn, UserPlus, LogOut,
-  LayoutDashboard, Users, Bell, MessageSquare, Settings, Lock, Edit2, Trash2, Plus, FileText, Download, Filter
+  LayoutDashboard, Users, Bell, MessageSquare, Settings, Lock, Edit2, Trash2, Plus, FileText, Download, Filter, Eye, EyeOff
 } from 'lucide-react';
 import faqData from './data/faqs';
 import noticeData from './data/notices';
 import { currentGeneration } from './data/generation';
 import * as XLSX from 'xlsx';
+
+// --- [Excel Helper Functions] ---
+const DEPARTMENT_OPTIONS = [
+  "문화부",
+  "찬양부",
+  "체육부",
+  "홍보부",
+  "정보통신부"
+];
+
+const createWorksheetFromData = (data) => {
+  const ws = XLSX.utils.json_to_sheet(data);
+  
+  if (!ws['!ref']) return ws;
+  
+  const range = XLSX.utils.decode_range(ws['!ref']);
+  let numColIndex = -1;
+  
+  // 첫 번째 행(헤더)에서 '번호' 컬럼 찾기
+  for (let C = range.s.c; C <= range.e.c; ++C) {
+    const cell = ws[XLSX.utils.encode_cell({ c: C, r: 0 })];
+    if (cell && cell.v === '번호') {
+      numColIndex = C;
+      break;
+    }
+  }
+
+  // '번호' 컬럼 셀들을 중앙 정렬
+  if (numColIndex !== -1) {
+    for (let R = range.s.r; R <= range.e.r; ++R) {
+      const cell = ws[XLSX.utils.encode_cell({ c: numColIndex, r: R })];
+      if (cell) {
+        if (!cell.s) cell.s = {};
+        cell.s.alignment = { horizontal: "center", vertical: "center" };
+      }
+    }
+  }
+
+  return ws;
+};
+
+const appendSheetIfHasData = (workbook, data, sheetName) => {
+  if (data && data.length > 0) {
+    const worksheet = createWorksheetFromData(data);
+    XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+  }
+};
+
+const downloadExcelByDepartment = (filteredData, formatDataFn, filePrefix, departmentField) => {
+  const workbook = XLSX.utils.book_new();
+  const today = new Date().toISOString().slice(0, 10).replaceAll("-", "");
+  
+  // 1. 전체 시트 (항상 포함)
+  const allData = filteredData.map((item, index) => formatDataFn(item, index));
+  appendSheetIfHasData(workbook, allData, "전체");
+
+  // 2. 부서별 시트
+  DEPARTMENT_OPTIONS.forEach(dept => {
+    const deptData = filteredData.filter(item => item[departmentField] === dept).map((item, index) => formatDataFn(item, index));
+    appendSheetIfHasData(workbook, deptData, dept);
+  });
+
+  // 3. 기타 시트
+  const etcData = filteredData.filter(item => !DEPARTMENT_OPTIONS.includes(item[departmentField])).map((item, index) => formatDataFn(item, index));
+  appendSheetIfHasData(workbook, etcData, "기타");
+
+  XLSX.writeFile(workbook, `${filePrefix}_${today}.xlsx`);
+};
+
+const downloadExcelSingleSheet = (filteredData, formatDataFn, filePrefix, sheetName) => {
+  const workbook = XLSX.utils.book_new();
+  const today = new Date().toISOString().slice(0, 10).replaceAll("-", "");
+  const data = filteredData.map((item, index) => formatDataFn(item, index));
+  appendSheetIfHasData(workbook, data, sheetName);
+  XLSX.writeFile(workbook, `${filePrefix}_${today}.xlsx`);
+};
 
 // --- [Data] Mock Data (부서 및 후원금 추가) ---
 const RAW_COURSES = [
@@ -168,6 +244,102 @@ const initializeDB = () => {
   if (!localStorage.getItem('phcaApplications')) localStorage.setItem('phcaApplications', '[]');
 };
 initializeDB();
+// --- [Generation Helpers] ---
+const DEFAULT_GENERATIONS = [
+  {
+    id: 'phca-1',
+    label: '1기',
+    name: 'PHCA 1기',
+    number: 1,
+    year: 2024,
+    season: '겨울방학',
+    status: '종료',
+    isCurrent: false,
+    startDate: '',
+    endDate: '',
+    memo: '',
+  },
+  {
+    id: 'phca-2',
+    label: '2기',
+    name: 'PHCA 2기',
+    number: 2,
+    year: 2025,
+    season: '여름방학',
+    status: '종료',
+    isCurrent: false,
+    startDate: '',
+    endDate: '',
+    memo: '',
+  },
+  {
+    id: 'phca-3',
+    label: '3기',
+    name: 'PHCA 3기',
+    number: 3,
+    year: 2026,
+    season: '겨울방학',
+    status: '종료',
+    isCurrent: false,
+    startDate: '',
+    endDate: '',
+    memo: '',
+  },
+  {
+    id: 'phca-4',
+    label: '4기',
+    name: 'PHCA 4기',
+    number: 4,
+    year: 2026,
+    season: '여름방학',
+    status: '운영중',
+    isCurrent: true,
+    startDate: '',
+    endDate: '',
+    memo: '',
+  },
+];
+
+const getGenerations = () => {
+  try {
+    const saved = localStorage.getItem('phcaGenerations');
+
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed;
+      }
+    }
+
+    localStorage.setItem('phcaGenerations', JSON.stringify(DEFAULT_GENERATIONS));
+    localStorage.setItem('phcaCurrentGenerationId', 'phca-4');
+
+    if (!localStorage.getItem('phcaSelectedGenerationId')) {
+      localStorage.setItem('phcaSelectedGenerationId', 'phca-4');
+    }
+
+    return DEFAULT_GENERATIONS;
+  } catch (error) {
+    console.error('기수 데이터를 불러오는 중 오류 발생:', error);
+    return DEFAULT_GENERATIONS;
+  }
+};
+
+const saveGenerations = (generations) => {
+  localStorage.setItem('phcaGenerations', JSON.stringify(generations));
+};
+
+const getSelectedGenerationId = () => {
+  return (
+    localStorage.getItem('phcaSelectedGenerationId') ||
+    localStorage.getItem('phcaCurrentGenerationId') ||
+    'phca-4'
+  );
+};
+
+const setSelectedGenerationId = (generationId) => {
+  localStorage.setItem('phcaSelectedGenerationId', generationId);
+};
 
 const StatusBadge = ({ status }) => {
   const styles = {
@@ -319,8 +491,9 @@ const Footer = ({ navigate }) => (
 
 const AuthPage = ({ type, navigate, onAuthSuccess }) => {
   const isLogin = type === 'login';
-  const [formData, setFormData] = useState({ name: '', phone: '', password: '', church: '광주 교회', department: '유년회', grade: '', age: '', gender: '' });
+  const [formData, setFormData] = useState({ name: '', phone: '', password: '', church: '광주 교회', department: '학생회', grade: '중1', age: '14세', gender: '남' });
   const [error, setError] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
   // 부서별 학년/나이 데이터
   const gradeOptions = {
@@ -346,7 +519,7 @@ const AuthPage = ({ type, navigate, onAuthSuccess }) => {
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    if (name === 'phone' && !isLogin) {
+    if (name === 'phone') {
       setFormData({ ...formData, [name]: formatPhone(value) });
     } else if (name === 'department' && !isLogin) {
       // 부서 변경 시 학년과 나이 초기화
@@ -408,7 +581,23 @@ const AuthPage = ({ type, navigate, onAuthSuccess }) => {
           <input type="tel" name="phone" value={formData.phone} onChange={handleChange} className={inputClass} placeholder="010-0000-0000" />
           
           <label className={labelClass}>비밀번호 *</label>
-          <input type="password" name="password" value={formData.password} onChange={handleChange} className={inputClass} placeholder="비밀번호 입력" />
+          <div className="relative mt-2 mb-4">
+            <input 
+              type={showPassword ? "text" : "password"} 
+              name="password" 
+              value={formData.password} 
+              onChange={handleChange} 
+              className={inputClass.replace(' mt-2 mb-4', '')} 
+              placeholder="비밀번호 입력" 
+            />
+            <button 
+              type="button" 
+              onClick={() => setShowPassword(!showPassword)}
+              className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
+            >
+              {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+            </button>
+          </div>
 
           {!isLogin && (
             <>
@@ -671,6 +860,12 @@ const NoticePage = ({ navigate }) => {
 
 const HomePage = ({ navigate }) => {
   const [currentSlide, setCurrentSlide] = useState(0);
+  const [mainVisual, setMainVisual] = useState({
+    recruitSchedule: '7월 12일(일) ~ 7월 22일(수)',
+    operationSchedule: '7월 25일(토) ~ 8월 23일(토)',
+    recruitTarget: '유년 회원',
+    operationLocation: '베드로지파 광주교회 각 층'
+  });
   const slides = [
     '/images/img_01.jpg',
     '/images/img_02.jpg',
@@ -678,6 +873,12 @@ const HomePage = ({ navigate }) => {
   ];
 
   useEffect(() => {
+    const visuals = JSON.parse(localStorage.getItem('phcaMainVisuals')) || [];
+    const currentVisual = visuals.find(v => v.generationId === currentGeneration.id);
+    if (currentVisual) {
+      setMainVisual(prev => ({ ...prev, ...currentVisual }));
+    }
+
     const timer = setInterval(() => {
       setCurrentSlide((prev) => (prev === slides.length - 1 ? 0 : prev + 1));
     }, 5000);
@@ -760,22 +961,22 @@ const HomePage = ({ navigate }) => {
           <div className="bg-white p-8 rounded-3xl shadow-xl shadow-slate-200/50 border border-slate-100 hover:-translate-y-1 transition-transform group">
             <div className="w-14 h-14 bg-sky-100 rounded-2xl flex items-center justify-center text-sky-500 mb-6 group-hover:scale-110 transition-transform"><Calendar size={28} /></div>
             <h3 className="text-xl font-black text-slate-800 mb-2">모집 일정</h3>
-            <p className="text-slate-500 font-medium">7월 12일(일) ~ 7월 22일(수)</p>
+            <p className="text-slate-500 font-medium">{mainVisual.recruitSchedule}</p>
           </div>
           <div className="bg-white p-8 rounded-3xl shadow-xl shadow-slate-200/50 border border-slate-100 hover:-translate-y-1 transition-transform group">
             <div className="w-14 h-14 bg-emerald-100 rounded-2xl flex items-center justify-center text-emerald-500 mb-6 group-hover:scale-110 transition-transform"><Calendar size={28} /></div>
             <h3 className="text-xl font-black text-slate-800 mb-2">운영 일정</h3>
-            <p className="text-slate-500 font-medium">7월 25일(토) ~ 8월 23일(토)</p>
+            <p className="text-slate-500 font-medium">{mainVisual.operationSchedule}</p>
           </div>
           <div className="bg-white p-8 rounded-3xl shadow-xl shadow-slate-200/50 border border-slate-100 hover:-translate-y-1 transition-transform group">
             <div className="w-14 h-14 bg-amber-100 rounded-2xl flex items-center justify-center text-amber-500 mb-6 group-hover:scale-110 transition-transform"><User size={28} /></div>
             <h3 className="text-xl font-black text-slate-800 mb-2">모집 대상</h3>
-            <p className="text-slate-500 font-medium">유년 회원</p>
+            <p className="text-slate-500 font-medium">{mainVisual.recruitTarget}</p>
           </div>
           <div className="bg-white p-8 rounded-3xl shadow-xl shadow-slate-200/50 border border-slate-100 hover:-translate-y-1 transition-transform group">
             <div className="w-14 h-14 bg-emerald-100 rounded-2xl flex items-center justify-center text-emerald-500 mb-6 group-hover:scale-110 transition-transform"><MapPin size={28} /></div>
             <h3 className="text-xl font-black text-slate-800 mb-2">운영 장소</h3>
-            <p className="text-slate-500 font-medium">베드로지파 광주교회 각 층</p>
+            <p className="text-slate-500 font-medium">{mainVisual.operationLocation}</p>
           </div>
         </div>
       </section>
@@ -809,17 +1010,42 @@ const HomePage = ({ navigate }) => {
 
 const CoursesPage = ({ navigate, user }) => {
   const [filterDept, setFilterDept] = useState('전체');
-  const [filterTarget, setFilterTarget] = useState('전체');
+  const [filterGroup, setFilterGroup] = useState('전체');
+  const [filterStatus, setFilterStatus] = useState('전체');
   const [courses, setCourses] = useState([]);
 
   useEffect(() => {
     setCourses(JSON.parse(localStorage.getItem('phcaCourses')) || MOCK_COURSES);
   }, []);
 
-  const filteredCourses = courses.filter(course => {
-    if (course.status === '비노출') return false;
+  // 비노출 강좌 제외
+  const visibleCourses = courses.filter(c => c.status !== '비노출');
+
+  // 전체 통계
+  const totalCourses = visibleCourses.length;
+  const youthCount = visibleCourses.filter(c => c.group === '유년').length;
+  const studentCount = visibleCourses.filter(c => c.group === '학생').length;
+  const availableCount = visibleCourses.filter(c => c.status === '신청가능').length;
+  const closedCount = visibleCourses.filter(c => c.status === '마감' || c.status === '신청마감').length;
+
+  const getDeptStats = (deptName) => {
+    const deptCourses = deptName === '전체' ? visibleCourses : visibleCourses.filter(c => c.department === deptName);
+    return {
+      total: deptCourses.length,
+      youth: deptCourses.filter(c => c.group === '유년').length,
+      student: deptCourses.filter(c => c.group === '학생').length,
+      available: deptCourses.filter(c => c.status === '신청가능').length,
+    };
+  };
+
+  const depts = ['전체', '문화부', '찬양부', '체육부', '홍보부', '정보통신부'];
+
+  // 필터 적용
+  const filteredCourses = visibleCourses.filter(course => {
     if (filterDept !== '전체' && course.department !== filterDept) return false;
-    if (filterTarget !== '전체' && course.group !== filterTarget) return false;
+    if (filterGroup !== '전체' && course.group !== filterGroup) return false;
+    if (filterStatus === '신청가능' && course.status !== '신청가능') return false;
+    if (filterStatus === '신청마감' && course.status !== '마감' && course.status !== '신청마감') return false;
     return true;
   });
 
@@ -831,99 +1057,176 @@ const CoursesPage = ({ navigate, user }) => {
     }
   };
 
+  const StatCard = ({ label, value, color }) => (
+    <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col items-center justify-center text-center hover:border-sky-200 hover:shadow-md transition-all">
+      <p className="text-slate-500 text-xs font-bold mb-1">{label}</p>
+      <p className={`text-3xl font-black ${color}`}>{value}</p>
+    </div>
+  );
+
   return (
     <div className="min-h-screen pt-32 pb-20 px-4 sm:px-6 lg:px-8 animate-fadeIn bg-slate-50">
       <div className="max-w-7xl mx-auto">
         <div className="text-center mb-12">
           <p className="text-amber-500 font-black tracking-widest uppercase text-sm mb-2">Explore</p>
-          <h2 className="text-4xl md:text-5xl font-black text-slate-800 tracking-tight">{currentGeneration.name} 개설 강좌</h2>
+          <h2 className="text-4xl md:text-5xl font-black text-slate-800 tracking-tight">{currentGeneration.name} 강좌 안내</h2>
+          <p className="text-slate-600 mt-4 max-w-2xl mx-auto font-medium leading-relaxed">부서별 강좌를 한눈에 확인하고 원하는 강좌를 선택해보세요.</p>
         </div>
         
-        {/* Filters (부서 단위로 개편) */}
-        <div className="bg-white p-4 sm:p-6 rounded-3xl shadow-md shadow-slate-200/50 border border-slate-100 mb-12 flex flex-col sm:flex-row gap-4 items-center justify-center">
-          <div className="flex items-center space-x-3 w-full sm:w-auto justify-center">
-            <span className="text-sm font-bold text-slate-500 uppercase">부서 구분</span>
-            <select value={filterDept} onChange={(e) => setFilterDept(e.target.value)} className="bg-slate-50 border border-slate-200 text-slate-800 font-bold rounded-xl focus:ring-2 focus:ring-sky-500 focus:border-sky-500 p-3 outline-none min-w-[140px]">
-              <option value="전체">전체보기</option>
-              <option value="문화부">문화부</option>
-              <option value="찬양부">찬양부</option>
-              <option value="체육부">체육부</option>
-              <option value="홍보부">홍보부</option>
-              <option value="정보통신부">정보통신부</option>
-            </select>
-          </div>
-          <div className="hidden sm:block w-px h-10 bg-slate-200"></div>
-          <div className="flex items-center space-x-3 w-full sm:w-auto justify-center">
-            <span className="text-sm font-bold text-slate-500 uppercase">대상 구분</span>
-            <select value={filterTarget} onChange={(e) => setFilterTarget(e.target.value)} className="bg-slate-50 border border-slate-200 text-slate-800 font-bold rounded-xl focus:ring-2 focus:ring-sky-500 focus:border-sky-500 p-3 outline-none min-w-[140px]">
-              <option value="전체">전체보기</option>
+        {/* 전체 현황 요약 카드 */}
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-10">
+          <StatCard label="전체 강좌 수" value={totalCourses} color="text-slate-800" />
+          <StatCard label="유년회 강좌 수" value={youthCount} color="text-amber-500" />
+          <StatCard label="학생회 강좌 수" value={studentCount} color="text-indigo-500" />
+          <StatCard label="신청 가능" value={availableCount} color="text-emerald-500" />
+          <StatCard label="마감" value={closedCount} color="text-rose-500" />
+        </div>
+
+        {/* 부서별 선택 카드 */}
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-12">
+          {depts.map(dept => {
+            const stats = getDeptStats(dept);
+            const isSelected = filterDept === dept;
+            return (
+              <div key={dept} onClick={() => setFilterDept(dept)} className={`cursor-pointer rounded-2xl p-4 border transition-all flex flex-col h-full ${isSelected ? 'border-sky-500 bg-sky-50 shadow-md ring-1 ring-sky-500' : 'border-slate-200 bg-white hover:border-sky-300 hover:shadow-md'}`}>
+                <h3 className={`text-lg font-black mb-3 text-center ${isSelected ? 'text-sky-700' : 'text-slate-800'}`}>{dept}</h3>
+                <div className="space-y-1.5 text-xs text-slate-600 mb-4 flex-grow px-1">
+                  <div className="flex justify-between items-center"><span className="text-slate-400 font-bold">전체</span><span className="font-black text-sm">{stats.total}</span></div>
+                  <div className="flex justify-between items-center"><span className="text-slate-400 font-bold">유년</span><span className="font-black text-sm">{stats.youth}</span></div>
+                  <div className="flex justify-between items-center"><span className="text-slate-400 font-bold">학생</span><span className="font-black text-sm">{stats.student}</span></div>
+                  <div className="flex justify-between items-center pt-1 mt-1 border-t border-slate-100"><span className="text-sky-600 font-bold">신청가능</span><span className="font-black text-sky-600 text-sm">{stats.available}</span></div>
+                </div>
+                <button className={`w-full py-2.5 rounded-xl text-xs font-bold transition-colors mt-auto ${isSelected ? 'bg-sky-500 text-white shadow-sm' : 'bg-slate-100 text-slate-600 group-hover:bg-slate-200'}`}>강좌 보기</button>
+              </div>
+            )
+          })}
+        </div>
+
+        {/* 추가 필터 및 목록 헤더 */}
+        <div className="flex flex-col sm:flex-row justify-between items-center bg-white p-4 rounded-2xl border border-slate-200 shadow-sm mb-6 gap-4">
+          <h3 className="font-black text-slate-800 text-lg">
+            {filterDept === '전체' ? '전체 강좌 목록' : `${filterDept} 강좌 목록`} 
+            <span className="text-sky-500 ml-2">{filteredCourses.length}</span>건
+          </h3>
+          <div className="flex gap-3 w-full sm:w-auto">
+            <select value={filterGroup} onChange={(e) => setFilterGroup(e.target.value)} className="flex-1 sm:w-32 bg-slate-50 border border-slate-200 text-slate-700 rounded-xl focus:ring-2 focus:ring-sky-500 p-2.5 outline-none text-sm font-bold">
+              <option value="전체">전체 (회)</option>
               <option value="유년">유년회</option>
               <option value="학생">학생회</option>
+            </select>
+            <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="flex-1 sm:w-36 bg-slate-50 border border-slate-200 text-slate-700 rounded-xl focus:ring-2 focus:ring-sky-500 p-2.5 outline-none text-sm font-bold">
+              <option value="전체">상태 전체</option>
+              <option value="신청가능">신청가능</option>
+              <option value="신청마감">신청마감</option>
             </select>
           </div>
         </div>
 
-        {/* Course Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+        {/* Desktop Table View */}
+        <div className="hidden md:block bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <table className="w-full table-fixed text-left text-[13px] whitespace-nowrap">
+            <colgroup>
+              <col className="w-[7%]" />
+              <col className="w-[19%]" />
+              <col className="w-[6%]" />
+              <col className="w-[10%]" />
+              <col className="w-[8%]" />
+              <col className="w-[13%]" />
+              <col className="w-[5%]" />
+              <col className="w-[8%]" />
+              <col className="w-[8%]" />
+              <col className="w-[16%]" />
+            </colgroup>
+            <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase text-xs tracking-wider">
+              <tr>
+                <th className="px-3 py-3 rounded-tl-2xl">부서</th>
+                <th className="px-3 py-3">강좌명</th>
+                <th className="px-3 py-3">회</th>
+                <th className="px-3 py-3">대상</th>
+                <th className="px-3 py-3">교육일</th>
+                <th className="px-3 py-3">교육시간</th>
+                <th className="px-3 py-3">정원</th>
+                <th className="px-3 py-3">후원금</th>
+                <th className="px-3 py-3">상태</th>
+                <th className="px-3 py-3 text-left rounded-tr-2xl">보기</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 text-slate-700 font-medium">
+              {filteredCourses.map(course => (
+                <tr key={course.id} className="hover:bg-sky-50/50 transition-colors group">
+                  <td className="px-3 py-3 font-bold text-slate-500">{course.department}</td>
+                  <td className="px-3 py-3">
+                    <button onClick={() => navigate(`/courses/${course.id}`)} className="font-black text-slate-900 group-hover:text-sky-600 transition-colors text-left truncate w-full">
+                      {course.name}
+                    </button>
+                  </td>
+                  <td className="px-3 py-3"><span className={`px-2.5 py-1 rounded-lg text-xs font-black ${course.group==='유년'?'bg-amber-100 text-amber-700':'bg-indigo-100 text-indigo-700'}`}>{course.group}</span></td>
+                  <td className="px-3 py-3 truncate">{course.target}</td>
+                  <td className="px-3 py-3 truncate">{course.days}</td>
+                  <td className="px-3 py-3 truncate">{course.times}</td>
+                  <td className="px-3 py-3">{course.capacity}</td>
+                  <td className="px-3 py-3 font-black text-rose-500">{course.donation}</td>
+                  <td className="px-3 py-3"><StatusBadge status={course.status} /></td>
+                  <td className="px-3 py-3">
+                    <div className="flex justify-start items-center gap-1.5">
+                      <button 
+                        onClick={() => navigate(`/courses/${course.id}`)}
+                        className="px-2.5 py-2 rounded-xl font-bold text-[12px] transition-colors shadow-sm bg-white text-slate-600 border border-slate-200 hover:bg-sky-50 hover:text-sky-600 hover:border-sky-200"
+                      >
+                        강좌 소개
+                      </button>
+                      <button 
+                        onClick={() => handleDirectApply(course.id)}
+                        disabled={course.status === '마감' || course.status === '신청마감'}
+                        className={`px-2.5 py-2 rounded-xl font-bold text-[12px] transition-colors shadow-sm flex items-center justify-center gap-1 ${course.status === '마감' || course.status === '신청마감' ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-sky-500 text-white hover:bg-sky-600'}`}
+                      >
+                        <Ticket size={14} /> 신청하기
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {filteredCourses.length === 0 && (
+                <tr><td colSpan="10" className="px-3 py-12 text-center text-slate-500 font-bold text-base">조건에 맞는 강좌가 없습니다.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Mobile Compact Cards View */}
+        <div className="md:hidden space-y-4">
           {filteredCourses.map(course => (
-            <div key={course.id} className="bg-white rounded-3xl border border-slate-100 overflow-hidden hover:-translate-y-2 hover:shadow-2xl hover:shadow-sky-100 transition-all duration-300 flex flex-col group">
-              <div className="relative overflow-hidden">
-                <img
-                  src={course.thumbnail}
-                  alt={course.title}
-                  onError={(e) => { e.currentTarget.src = COURSE_IMAGE_PLACEHOLDER; }}
-                  className="w-full h-44 object-cover"
-                />
-              </div>
-              <div className="p-8 flex-grow">
-                <div className="flex justify-between items-start mb-6">
-                  <div className="flex space-x-2">
-                    <span className={`px-3 py-1.5 text-xs font-black rounded-lg ${course.group === '유년' ? 'bg-amber-100 text-amber-700' : 'bg-indigo-100 text-indigo-700'}`}>{course.group}</span>
-                    <span className="px-3 py-1.5 text-xs font-black rounded-lg bg-sky-100 text-sky-700">{course.department}</span>
-                  </div>
-                  <StatusBadge status={course.status} />
+            <div key={course.id} className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm transition-colors">
+              <div className="flex justify-between items-start mb-3">
+                <div className="flex gap-2 flex-wrap mb-1">
+                  <span className="text-[10px] font-black text-sky-700 bg-sky-100 px-2.5 py-1 rounded-lg">{course.department}</span>
+                  <span className={`text-[10px] font-black px-2.5 py-1 rounded-lg ${course.group==='유년'?'bg-amber-100 text-amber-700':'bg-indigo-100 text-indigo-700'}`}>{course.group}</span>
                 </div>
-                <h3 className="text-2xl font-black text-slate-800 mb-3">
-                  <span
-                    onClick={(e) => { e.stopPropagation(); navigate(`/courses/${course.id}`); }}
-                    className="cursor-pointer transition-all hover:text-sky-500 hover:underline hover:underline-offset-4"
-                  >
-                    {course.title}
-                  </span>
-                </h3>
-                <p className="text-slate-500 text-sm mb-8 h-10 line-clamp-2 leading-relaxed font-medium">{course.intro}</p>
-                
-                {/* Details (일시, 정원, 준비물, 후원금) */}
-                <div className="space-y-3 text-sm text-slate-600 bg-slate-50 p-5 rounded-2xl border border-slate-100">
-                  <div className="flex justify-between items-center"><span className="text-slate-400 font-bold text-xs">일시</span><span className="font-bold text-slate-700">{course.day} / {course.time}</span></div>
-                  <div className="w-full h-px bg-slate-200/50"></div>
-                  <div className="flex justify-between items-center"><span className="text-slate-400 font-bold text-xs">정원</span><span className="font-bold text-slate-700">{course.capacity}</span></div>
-                  <div className="w-full h-px bg-slate-200/50"></div>
-                  <div className="flex justify-between items-center"><span className="text-slate-400 font-bold text-xs">준비물</span><span className="font-bold text-slate-700">{course.material}</span></div>
-                  <div className="w-full h-px bg-slate-200/50"></div>
-                  <div className="flex justify-between items-center"><span className="text-slate-400 font-bold text-xs">후원금</span><span className="font-black text-rose-500">{course.fee}</span></div>
-                </div>
+                <StatusBadge status={course.status} />
               </div>
+              <h3 onClick={() => navigate(`/courses/${course.id}`)} className="text-lg font-black text-slate-800 mb-3 cursor-pointer hover:text-sky-600 transition-colors leading-snug">{course.name}</h3>
               
-              {/* Direct Apply Button */}
-              <div className="px-8 pb-8">
-                <button 
-                  onClick={() => handleDirectApply(course.id)}
-                  disabled={course.status === '마감'}
-                  className={`w-full py-4 rounded-2xl font-black transition-all flex items-center justify-center gap-2 ${course.status === '마감' ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-slate-800 text-white hover:bg-sky-500 hover:shadow-lg hover:shadow-sky-200'}`}
-                >
-                  <Ticket size={18} />
-                  {user ? '이 강좌 바로 신청하기' : '로그인 후 신청하기'}
+              <div className="grid grid-cols-2 gap-2 text-sm text-slate-600 mb-4 bg-slate-50 p-3 rounded-xl border border-slate-100">
+                <div className="flex flex-col col-span-2"><span className="text-[10px] font-bold text-slate-400 mb-0.5">교육일시</span><span className="font-bold text-slate-700">{course.days} {course.times}</span></div>
+                <div className="flex flex-col col-span-2 pt-2 mt-1 border-t border-slate-200/60 flex-row justify-between items-center">
+                  <span className="text-[10px] font-bold text-slate-400">후원금</span><span className="font-black text-rose-500">{course.donation}</span>
+                </div>
+              </div>
+
+              <div className="flex gap-2">
+                <button onClick={() => navigate(`/courses/${course.id}`)} className="flex-1 py-3.5 font-bold rounded-xl transition-colors text-sm border bg-white text-slate-700 border-slate-300 hover:bg-slate-50">
+                  강좌 소개
+                </button>
+                <button onClick={() => handleDirectApply(course.id)} disabled={course.status === '마감' || course.status === '신청마감'} className={`flex-1 py-3.5 font-bold rounded-xl transition-colors shadow-sm text-sm flex items-center justify-center gap-1.5 ${course.status === '마감' || course.status === '신청마감' ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-sky-500 text-white hover:bg-sky-600'}`}>
+                  <Ticket size={16} /> 신청하기
                 </button>
               </div>
             </div>
           ))}
+          {filteredCourses.length === 0 && (
+            <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center text-slate-500 font-bold shadow-sm">조건에 맞는 강좌가 없습니다.</div>
+          )}
         </div>
-        {filteredCourses.length === 0 && (
-          <div className="text-center py-32 text-slate-500 font-bold text-lg bg-white rounded-3xl border border-slate-100 shadow-sm">
-            조건에 맞는 강좌가 없습니다.
-          </div>
-        )}
       </div>
     </div>
   );
@@ -1701,14 +2004,19 @@ const AdminLayout = ({ children, navigate, onLogout }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const currentGen = JSON.parse(localStorage.getItem('phcaCurrentGeneration'));
   
-  const menuItems = [
-    { path: '/admin', label: '대시보드', icon: LayoutDashboard },
-    { path: '/admin/applications', label: '신청자 관리', icon: Users },
-    { path: '/admin/courses', label: '강좌 관리', icon: BookOpen },
-    { path: '/admin/notices', label: '공지사항 관리', icon: Bell },
-    { path: '/admin/faqs', label: 'FAQ 관리', icon: MessageSquare },
-    { path: '/admin/generation', label: '기수 설정', icon: Settings },
-  ];
+const menuItems = [
+  { path: '/admin', label: '대시보드', icon: LayoutDashboard },
+  { path: '/admin/applications', label: '신청자 관리', icon: Users },
+  { path: '/admin/courses', label: '강좌 관리', icon: BookOpen },
+  { path: '/admin/notices', label: '공지사항 관리', icon: Bell },
+  { path: '/admin/faqs', label: 'FAQ 관리', icon: MessageSquare },
+  { path: '/admin/advanced', label: '심화반 관리', icon: FileText },
+
+  // 추가
+  { path: '/admin/main-visual', label: '메인 관리', icon: Sparkles },
+
+  { path: '/admin/generation', label: '기수 설정', icon: Settings },
+];
 
   return (
     <div className="h-screen flex overflow-hidden bg-slate-50 font-sans text-slate-800">
@@ -1833,9 +2141,9 @@ const AdminStatCard = ({ title, value, colorClass }) => (
   </div>
 );
 
-const AdminModal = ({ title, onClose, children }) => (
+const AdminModal = ({ title, onClose, children, maxWidthClass = 'max-w-lg' }) => (
   <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
-    <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden animate-fadeIn flex flex-col max-h-[90vh]">
+    <div className={`bg-white rounded-2xl shadow-xl w-full ${maxWidthClass} overflow-hidden animate-fadeIn flex flex-col max-h-[90vh]`}>
       <div className="flex justify-between items-center p-6 border-b border-slate-100 flex-shrink-0">
         <h3 className="text-xl font-black text-slate-800">{title}</h3>
         <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition-colors"><X size={24} /></button>
@@ -1929,6 +2237,103 @@ const ApplicationEditModal = ({ app, onCancel, onSave }) => {
   );
 };
 
+// 이미지 업로드 및 Base64 압축 변환 (localStorage 용량 제한 대비)
+const fileToBase64 = (file) => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      let width = img.width;
+      let height = img.height;
+      const max_size = 1200; // 최대 너비 또는 높이 제한
+
+      if (width > height) {
+        if (width > max_size) {
+          height *= max_size / width;
+          width = max_size;
+        }
+      } else {
+        if (height > max_size) {
+          width *= max_size / height;
+          height = max_size;
+        }
+      }
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL('image/jpeg', 0.8)); // 80% 화질로 압축
+    };
+    img.onerror = reject;
+    img.src = e.target.result;
+  };
+  reader.onerror = reject;
+  reader.readAsDataURL(file);
+});
+
+const ImageUploadBox = ({ label, images, onChange, multiple }) => {
+  const fileInputRef = useRef(null);
+
+  const processFiles = async (files) => {
+    const imageFiles = Array.from(files).filter(file => file.type.startsWith('image/'));
+    if (imageFiles.length === 0) return;
+
+    const base64Images = await Promise.all(imageFiles.map(fileToBase64));
+    
+    if (multiple) {
+      onChange([...images, ...base64Images]);
+    } else {
+      onChange([base64Images[0]]);
+    }
+  };
+
+  const handlePaste = (e) => {
+    if (e.clipboardData.files.length > 0) {
+      e.preventDefault();
+      processFiles(e.clipboardData.files);
+    }
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    if (e.dataTransfer.files.length > 0) {
+      processFiles(e.dataTransfer.files);
+    }
+  };
+
+  return (
+    <div className="mt-4">
+      <label className="block text-sm font-bold text-slate-600 mb-2">{label}</label>
+      <div 
+        className="border-2 border-dashed border-slate-300 rounded-2xl p-8 text-center hover:bg-slate-50 transition-colors focus-within:ring-2 focus-within:ring-sky-500 outline-none cursor-pointer"
+        onClick={() => fileInputRef.current.click()}
+        onPaste={handlePaste}
+        onDrop={handleDrop}
+        onDragOver={(e) => e.preventDefault()}
+        tabIndex={0}
+      >
+        <input type="file" multiple={multiple} accept="image/*" className="hidden" ref={fileInputRef} onChange={(e) => processFiles(e.target.files)} />
+        <div className="text-slate-500 mb-2 flex flex-col items-center">
+          <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center text-slate-400 mb-3"><Plus size={24} /></div>
+          <p><span className="font-bold text-sky-500">클릭하여 이미지 업로드</span> 또는 파일 드래그 & 드롭</p>
+          <p className="text-xs text-slate-400 mt-1">클립보드 이미지 복사 후 여기에 붙여넣기(Ctrl+V) 지원</p>
+        </div>
+        {images.length > 0 && (
+          <div className="flex flex-wrap gap-4 mt-6 justify-center" onClick={e => e.stopPropagation()}>
+            {images.map((img, idx) => (
+              <div key={idx} className="relative group shadow-sm rounded-xl overflow-hidden border border-slate-200 bg-white">
+                <img src={img} alt={`preview-${idx}`} className="h-28 w-auto object-cover" />
+                <button type="button" onClick={(e) => { e.stopPropagation(); const newImages = [...images]; newImages.splice(idx, 1); onChange(newImages); }} className="absolute top-1 right-1 bg-rose-500 text-white rounded-full p-1.5 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-rose-600 shadow-sm"><X size={14} /></button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 // --- [Admin Course Form Component] ---
 const AdminCourseForm = ({ isEdit, initialData, onCancel, onSave }) => {
   const [formData, setFormData] = useState(() => {
@@ -1955,7 +2360,11 @@ const AdminCourseForm = ({ isEdit, initialData, onCancel, onSave }) => {
       curriculum: (c.curriculum || []).join('\n'),
       notice: (c.notice || []).join('\n'),
       thumbnail: c.thumbnail || '',
-      images: (c.images || []).join('\n'),
+      images: c.images || [],
+      eligibleGroup: c.eligibleGroup || (c.group === '유년' ? '유년회' : c.group === '학생' ? '학생회' : '전체'),
+      eligibleTargetStart: c.eligibleTargetStart || '',
+      eligibleTargetEnd: c.eligibleTargetEnd || '',
+      eligibleTargetText: c.eligibleTargetText || '',
     };
   });
   const [showConfirm, setShowConfirm] = useState(false);
@@ -1965,19 +2374,47 @@ const AdminCourseForm = ({ isEdit, initialData, onCancel, onSave }) => {
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
+  const handleTargetChange = (e) => {
+    const { name, value } = e.target;
+    setFormData(prev => {
+      const next = { ...prev, [name]: value };
+      if (name === 'eligibleTargetStart' || name === 'eligibleTargetEnd') {
+        const start = next.eligibleTargetStart;
+        const end = next.eligibleTargetEnd;
+        let text = '';
+        if (start && end) text = start === end ? start : `${start}~${end}`;
+        else if (start) text = start;
+        else if (end) text = end;
+        
+        next.eligibleTargetText = text;
+        next.target = text;
+      }
+      return next;
+    });
+  };
+
   const handleSubmit = (e) => {
     e.preventDefault();
     setShowConfirm(true);
   };
 
   const handleConfirmSave = () => {
+    const startVal = normalizeTargetValue(formData.eligibleTargetStart);
+    const endVal = normalizeTargetValue(formData.eligibleTargetEnd);
+    
+    if (startVal !== null && endVal !== null && startVal > endVal) {
+      alert("대상 시작은 대상 종료보다 앞선 단계여야 합니다.");
+      setShowConfirm(false);
+      return;
+    }
+
     const parsed = {
       ...formData,
       available: formData.status === '신청가능',
       recommendedFor: typeof formData.recommendedFor === 'string' ? formData.recommendedFor.split('\n').map(s=>s.trim()).filter(Boolean) : [],
       curriculum: typeof formData.curriculum === 'string' ? formData.curriculum.split('\n').map(s=>s.trim()).filter(Boolean) : [],
       notice: typeof formData.notice === 'string' ? formData.notice.split('\n').map(s=>s.trim()).filter(Boolean) : [],
-      images: typeof formData.images === 'string' ? formData.images.split('\n').map(s=>s.trim()).filter(Boolean) : [],
+      images: Array.isArray(formData.images) ? formData.images : [],
     };
     onSave(parsed);
   };
@@ -2005,10 +2442,78 @@ const AdminCourseForm = ({ isEdit, initialData, onCancel, onSave }) => {
             <div><label className={labelClass}>신청기수 (ID)</label><input type="text" name="generationId" value={formData.generationId} onChange={handleChange} className={inputClass} /></div>
             <div><label className={labelClass}>신청기수명</label><input type="text" name="generationName" value={formData.generationName} onChange={handleChange} className={inputClass} /></div>
             <div><label className={labelClass}>부서</label><input type="text" name="department" value={formData.department} onChange={handleChange} className={inputClass} /></div>
-            <div><label className={labelClass}>회 (그룹)</label><input type="text" name="group" value={formData.group} onChange={handleChange} className={inputClass} /></div>
+            <div>
+              <label className={labelClass}>회 (그룹)</label>
+              <select name="group" value={formData.group} onChange={handleChange} className={inputClass} required>
+                <option value="유년">유년</option>
+                <option value="학생">학생</option>
+              </select>
+            </div>
             <div className="sm:col-span-2"><label className={labelClass}>강좌명 *</label><input type="text" name="name" value={formData.name} onChange={handleChange} className={inputClass} required /></div>
             <div className="sm:col-span-2"><label className={labelClass}>세부과목</label><input type="text" name="subTitle" value={formData.subTitle} onChange={handleChange} className={inputClass} /></div>
-            <div><label className={labelClass}>대상</label><input type="text" name="target" value={formData.target} onChange={handleChange} className={inputClass} /></div>
+            <div className="sm:col-span-2">
+              <label className={labelClass}>대상</label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <select
+                  name="eligibleTargetStart"
+                  value={formData.eligibleTargetStart}
+                  onChange={handleTargetChange}
+                  className={inputClass}
+                  required
+                >
+                  <option value="">대상 시작 선택</option>
+                  <option value="6세">6세</option>
+                  <option value="7세">7세</option>
+                  <option value="8세">8세</option>
+                  <option value="9세">9세</option>
+                  <option value="10세">10세</option>
+                  <option value="11세">11세</option>
+                  <option value="12세">12세</option>
+                  <option value="13세">13세</option>
+                  <option value="초1">초1</option>
+                  <option value="초2">초2</option>
+                  <option value="초3">초3</option>
+                  <option value="초4">초4</option>
+                  <option value="초5">초5</option>
+                  <option value="초6">초6</option>
+                  <option value="중1">중1</option>
+                  <option value="중2">중2</option>
+                  <option value="중3">중3</option>
+                  <option value="고1">고1</option>
+                  <option value="고2">고2</option>
+                  <option value="고3">고3</option>
+                </select>
+                <select
+                  name="eligibleTargetEnd"
+                  value={formData.eligibleTargetEnd}
+                  onChange={handleTargetChange}
+                  className={inputClass}
+                  required
+                >
+                  <option value="">대상 종료 선택</option>
+                  <option value="6세">6세</option>
+                  <option value="7세">7세</option>
+                  <option value="8세">8세</option>
+                  <option value="9세">9세</option>
+                  <option value="10세">10세</option>
+                  <option value="11세">11세</option>
+                  <option value="12세">12세</option>
+                  <option value="13세">13세</option>
+                  <option value="초1">초1</option>
+                  <option value="초2">초2</option>
+                  <option value="초3">초3</option>
+                  <option value="초4">초4</option>
+                  <option value="초5">초5</option>
+                  <option value="초6">초6</option>
+                  <option value="중1">중1</option>
+                  <option value="중2">중2</option>
+                  <option value="중3">중3</option>
+                  <option value="고1">고1</option>
+                  <option value="고2">고2</option>
+                  <option value="고3">고3</option>
+                </select>
+              </div>
+            </div>
             <div><label className={labelClass}>정원</label><input type="text" name="capacity" value={formData.capacity} onChange={handleChange} className={inputClass} /></div>
             <div><label className={labelClass}>후원금</label><input type="text" name="donation" value={formData.donation} onChange={handleChange} className={inputClass} /></div>
             <div>
@@ -2034,8 +2539,18 @@ const AdminCourseForm = ({ isEdit, initialData, onCancel, onSave }) => {
           <div><label className={labelClass}>수업 내용 (줄바꿈 구분)</label><textarea name="curriculum" value={formData.curriculum} onChange={handleChange} rows="4" className={inputClass}></textarea></div>
           <div><label className={labelClass}>유의사항 (줄바꿈 구분)</label><textarea name="notice" value={formData.notice} onChange={handleChange} rows="3" className={inputClass}></textarea></div>
           <h4 className={sectionClass}>D. 이미지 정보</h4>
-          <div><label className={labelClass}>대표 이미지 경로</label><input type="text" name="thumbnail" value={formData.thumbnail} onChange={handleChange} className={inputClass} /></div>
-          <div><label className={labelClass}>갤러리 이미지 경로 (줄바꿈 구분)</label><textarea name="images" value={formData.images} onChange={handleChange} rows="3" className={inputClass}></textarea></div>
+          <ImageUploadBox 
+            label="대표 이미지 (1장)" 
+            multiple={false} 
+            images={formData.thumbnail ? [formData.thumbnail] : []} 
+            onChange={(newImages) => setFormData(prev => ({ ...prev, thumbnail: newImages[0] || '' }))} 
+          />
+          <ImageUploadBox 
+            label="갤러리 이미지 (여러 장 가능)" 
+            multiple={true} 
+            images={formData.images || []} 
+            onChange={(newImages) => setFormData(prev => ({ ...prev, images: newImages }))} 
+          />
           <div className="flex justify-end gap-3 pt-8 mt-10 border-t border-slate-100">
             <button type="button" onClick={onCancel} className="px-8 py-3.5 rounded-xl font-bold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors">취소</button>
             <button type="submit" className="px-8 py-3.5 rounded-xl font-bold bg-sky-500 text-white hover:bg-sky-600 transition-colors shadow-sm">{isEdit ? '수정하기' : '저장하기'}</button>
@@ -2243,7 +2758,13 @@ const AdminApplicationsPage = () => {
 
   // 엑셀 다운로드 (화면에 필터링된 결과 기준)
   const handleExcelDownload = () => {
-    const excelData = filtered.map((item) => ({
+    if (filtered.length === 0) {
+      alert("다운로드할 데이터가 없습니다.");
+      return;
+    }
+
+    const formatData = (item, index) => ({
+      번호: index + 1,
       신청기수: item.generationName || '4기',
       이름: item.applicantName,
       신청부서: item.courseDepartment,
@@ -2256,15 +2777,9 @@ const AdminApplicationsPage = () => {
       부모님: item.guardianName,
       부모님연락처: item.guardianPhone,
       특이사항: item.notes || '',
-    }));
+    });
 
-    const worksheet = XLSX.utils.json_to_sheet(excelData);
-    const workbook = XLSX.utils.book_new();
-
-    XLSX.utils.book_append_sheet(workbook, worksheet, "신청자명단");
-
-    const today = new Date().toISOString().slice(0, 10).replaceAll("-", "");
-    XLSX.writeFile(workbook, `PHCA_4기_신청자명단_${today}.xlsx`);
+    downloadExcelByDepartment(filtered, formatData, "PHCA_부서별_신청자명단", "courseDepartment");
   };
 
   const selectClass = "w-full p-2.5 bg-white border border-slate-200 text-slate-700 rounded-xl focus:ring-2 focus:ring-sky-500 outline-none text-sm font-medium";
@@ -2447,7 +2962,7 @@ const AdminCoursesPage = ({ navigate }) => {
   const itemsPerPage = 25;
 
   const [deleteTarget, setDeleteTarget] = useState(null);
-  
+
   useEffect(() => {
     setCourses(JSON.parse(localStorage.getItem('phcaCourses')) || MOCK_COURSES);
     setApps(JSON.parse(localStorage.getItem('phca_applications') || '[]'));
@@ -2502,7 +3017,8 @@ const AdminCoursesPage = ({ navigate }) => {
       return;
     }
 
-    const excelData = filtered.map((course) => ({
+    const formatData = (course, index) => ({
+      번호: index + 1,
       신청기수: course.generationName || course.generationLabel || "4기",
       부서: course.department || "",
       강좌명: course.name || "",
@@ -2523,15 +3039,9 @@ const AdminCoursesPage = ({ navigate }) => {
       유의사항: Array.isArray(course.notice) ? course.notice.join("\n") : course.notice || "",
       "대표 이미지": course.thumbnail || "",
       "갤러리 이미지": Array.isArray(course.images) ? course.images.join("\n") : course.images || "",
-    }));
+    });
 
-    const worksheet = XLSX.utils.json_to_sheet(excelData);
-    const workbook = XLSX.utils.book_new();
-
-    XLSX.utils.book_append_sheet(workbook, worksheet, "강좌목록");
-
-    const today = new Date().toISOString().slice(0, 10).replaceAll("-", "");
-    XLSX.writeFile(workbook, `PHCA_4기_강좌목록_${today}.xlsx`);
+    downloadExcelByDepartment(filtered, formatData, "PHCA_부서별_강좌목록", "department");
   };
 
   const selectClass = "w-full p-2.5 bg-white border border-slate-200 text-slate-700 rounded-xl focus:ring-2 focus:ring-sky-500 outline-none text-sm font-medium";
@@ -2955,42 +3465,995 @@ const AdminFaqsPage = () => {
   );
 };
 
-const AdminGenerationPage = () => {
-  const [gen, setGen] = useState(JSON.parse(localStorage.getItem('phcaCurrentGeneration')) || currentGeneration);
+const AdminAdvancedParticipantPage = ({ advancedId, navigate }) => {
+  const classes = JSON.parse(localStorage.getItem('phcaAdvancedClasses')) || [];
+  const targetClass = classes.find(c => c.id === advancedId);
 
-  const handleSave = () => {
-    localStorage.setItem('phcaCurrentGeneration', JSON.stringify(gen));
-    alert('기수 정보가 저장되었습니다. (새로고침 시 사용자 페이지에 반영됩니다)');
+  if (!targetClass) {
+    return (
+      <div className="py-20 text-center bg-white rounded-3xl border border-slate-200 shadow-sm max-w-2xl mx-auto mt-10">
+        <AlertCircle size={48} className="mx-auto text-slate-400 mb-4" />
+        <h2 className="text-2xl font-black text-slate-800 mb-2">해당 심화반을 찾을 수 없습니다.</h2>
+        <p className="text-slate-500 mb-8 font-medium">정보가 삭제되었거나 잘못된 접근입니다.</p>
+        <button onClick={() => navigate('/admin/advanced')} className="px-6 py-3 bg-slate-800 text-white rounded-xl font-bold hover:bg-slate-900 transition-all shadow-sm">목록으로 돌아가기</button>
+      </div>
+    );
+  }
+
+  const [participants, setParticipants] = useState(targetClass.participants || []);
+  const [showForm, setShowForm] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  
+  const initialFormState = {
+    id: '', name: '', group: '', grade: '', age: '', gender: '',
+    phone: '', guardianName: '', guardianPhone: '', originalCourseName: '',
+    status: '참여중', memo: ''
+  };
+  const [formData, setFormData] = useState(initialFormState);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+
+  const formatPhone = (value) => {
+    const numbers = value.replace(/\D/g, '');
+    if (numbers.length <= 3) return numbers;
+    if (numbers.length <= 7) return `${numbers.slice(0, 3)}-${numbers.slice(3)}`;
+    return `${numbers.slice(0, 3)}-${numbers.slice(3, 7)}-${numbers.slice(7, 11)}`;
+  };
+
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    if (name === 'phone' || name === 'guardianPhone') {
+      const formatted = formatPhone(value);
+      setFormData(prev => {
+        const next = { ...prev, [name]: formatted };
+        
+        // 연락처(phone) 13자리(010-0000-0000) 입력 시 자동완성 로직 수행 (추가 모드일 때만)
+        if (name === 'phone' && formatted.length === 13 && !isEditing) {
+          const apps = JSON.parse(localStorage.getItem('phca_applications') || '[]');
+          const users = JSON.parse(localStorage.getItem('phca_users') || '[]');
+          
+          // 1. 기존 신청 내역 우선 검색 (보호자 정보, 기존 강좌 등 상세 정보 포함)
+          const foundApp = apps.slice().reverse().find(a => a.phone === formatted);
+          if (foundApp) {
+            return {
+              ...next,
+              name: next.name || foundApp.applicantName || '',
+              group: next.group || (foundApp.courseGroup ? foundApp.courseGroup.replace('회', '') : (foundApp.group ? foundApp.group.replace('회', '') : '')),
+              grade: next.grade || foundApp.grade || '',
+              age: next.age || foundApp.age || '',
+              gender: next.gender || foundApp.gender || '',
+              guardianName: next.guardianName || foundApp.guardianName || '',
+              guardianPhone: next.guardianPhone || foundApp.guardianPhone || '',
+              originalCourseName: next.originalCourseName || foundApp.courseName || ''
+            };
+          }
+          
+          // 2. 신청 내역이 없다면 단순 회원가입 정보 검색
+          const foundUser = users.slice().reverse().find(u => u.phone === formatted);
+          if (foundUser) {
+            return {
+              ...next,
+              name: next.name || foundUser.name || '',
+              group: next.group || (foundUser.department ? foundUser.department.replace('회', '') : ''),
+              grade: next.grade || foundUser.grade || '',
+              age: next.age || foundUser.age || '',
+              gender: next.gender || foundUser.gender || ''
+            };
+          }
+        }
+        return next;
+      });
+    } else {
+      setFormData(prev => ({ ...prev, [name]: value }));
+    }
+  };
+
+  const saveToStorage = (updatedParticipants) => {
+    const updatedClass = { ...targetClass, participants: updatedParticipants };
+    const updatedClasses = classes.map(c => c.id === targetClass.id ? updatedClass : c);
+    localStorage.setItem('phcaAdvancedClasses', JSON.stringify(updatedClasses));
+  };
+
+  const handleSaveForm = (e) => {
+    e.preventDefault();
+    let updated;
+    if (isEditing) {
+      updated = participants.map(p => p.id === formData.id ? formData : p);
+    } else {
+      updated = [...participants, { ...formData, id: `p-${Date.now()}` }];
+    }
+    setParticipants(updated);
+    saveToStorage(updated);
+    setShowForm(false);
+    setIsEditing(false);
+    setFormData(initialFormState);
+  };
+
+  const handleEdit = (p) => {
+    setFormData(p);
+    setIsEditing(true);
+    setShowForm(true);
+  };
+
+  const handleDeleteConfirm = () => {
+    const updated = participants.filter(p => p.id !== deleteTarget.id);
+    setParticipants(updated);
+    saveToStorage(updated);
+    setDeleteTarget(null);
+  };
+
+  return (
+    <div className="animate-fadeIn max-w-5xl mx-auto pb-10">
+      <div className="flex justify-between items-end mb-6">
+        <div>
+          <h2 className="text-2xl font-black text-slate-800">[{targetClass.className}] 참여자 명단</h2>
+          <p className="text-slate-500 mt-1">해당 심화반의 참여자를 관리합니다.</p>
+        </div>
+        <button onClick={() => navigate('/admin/advanced')} className="px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-xl font-bold hover:bg-slate-50 transition-colors shadow-sm text-sm flex items-center">
+          목록으로 돌아가기
+        </button>
+      </div>
+
+      <div className="space-y-6">
+        {!showForm && (
+          <div className="flex justify-end">
+            <button onClick={() => { setFormData(initialFormState); setIsEditing(false); setShowForm(true); }} className="bg-sky-500 text-white px-4 py-2 rounded-xl font-bold flex items-center shadow-sm hover:bg-sky-600 transition-colors text-sm">
+              <Plus size={16} className="mr-1" /> 참여자 추가
+            </button>
+          </div>
+        )}
+
+        {showForm && (
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+            <h4 className="font-black text-slate-800 mb-4">{isEditing ? '참여자 수정' : '참여자 추가'}</h4>
+            <form onSubmit={handleSaveForm} className="space-y-4">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <div><label className="block text-xs font-black text-sky-600 mb-1">연락처 (자동완성)</label><input type="tel" name="phone" value={formData.phone} onChange={handleChange} className="w-full p-2.5 bg-sky-50/50 border border-sky-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-sky-500 transition-all" placeholder="010-0000-0000" /></div>
+                <div><label className="block text-xs font-bold text-slate-600 mb-1">이름</label><input type="text" name="name" value={formData.name} onChange={handleChange} className="w-full p-2.5 bg-white border border-slate-200 rounded-lg text-sm" required /></div>
+                <div><label className="block text-xs font-bold text-slate-600 mb-1">회</label><input type="text" name="group" value={formData.group} onChange={handleChange} className="w-full p-2.5 bg-white border border-slate-200 rounded-lg text-sm" /></div>
+                <div><label className="block text-xs font-bold text-slate-600 mb-1">학년</label><input type="text" name="grade" value={formData.grade} onChange={handleChange} className="w-full p-2.5 bg-white border border-slate-200 rounded-lg text-sm" /></div>
+                <div><label className="block text-xs font-bold text-slate-600 mb-1">나이</label><input type="text" name="age" value={formData.age} onChange={handleChange} className="w-full p-2.5 bg-white border border-slate-200 rounded-lg text-sm" /></div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-1">성별</label>
+                  <select name="gender" value={formData.gender} onChange={handleChange} className="w-full p-2.5 bg-white border border-slate-200 rounded-lg text-sm">
+                    <option value="">-</option>
+                    <option value="남">남</option>
+                    <option value="여">여</option>
+                  </select>
+                </div>
+                <div><label className="block text-xs font-bold text-slate-600 mb-1">보호자</label><input type="text" name="guardianName" value={formData.guardianName} onChange={handleChange} className="w-full p-2.5 bg-white border border-slate-200 rounded-lg text-sm" /></div>
+                <div><label className="block text-xs font-bold text-slate-600 mb-1">보호자 연락처</label><input type="tel" name="guardianPhone" value={formData.guardianPhone} onChange={handleChange} className="w-full p-2.5 bg-white border border-slate-200 rounded-lg text-sm" /></div>
+                <div className="col-span-2"><label className="block text-xs font-bold text-slate-600 mb-1">기존 신청 강좌</label><input type="text" name="originalCourseName" value={formData.originalCourseName} onChange={handleChange} className="w-full p-2.5 bg-white border border-slate-200 rounded-lg text-sm" /></div>
+                <div className="col-span-2">
+                  <label className="block text-xs font-bold text-slate-600 mb-1">상태</label>
+                  <select name="status" value={formData.status} onChange={handleChange} className="w-full p-2.5 bg-white border border-slate-200 rounded-lg text-sm">
+                    <option value="참여중">참여중</option>
+                    <option value="수료">수료</option>
+                    <option value="중단">중단</option>
+                    <option value="보류">보류</option>
+                  </select>
+                </div>
+                <div className="col-span-2 sm:col-span-4"><label className="block text-xs font-bold text-slate-600 mb-1">메모</label><input type="text" name="memo" value={formData.memo} onChange={handleChange} className="w-full p-2.5 bg-white border border-slate-200 rounded-lg text-sm" /></div>
+              </div>
+              <div className="flex justify-end gap-2 mt-4">
+                <button type="button" onClick={() => { setShowForm(false); setIsEditing(false); }} className="px-4 py-2 rounded-lg font-bold bg-slate-200 text-slate-700 hover:bg-slate-300 text-sm transition-colors">취소</button>
+                <button type="submit" className="px-4 py-2 rounded-lg font-bold bg-sky-500 text-white hover:bg-sky-600 text-sm transition-colors shadow-sm">저장</button>
+              </div>
+            </form>
+          </div>
+        )}
+
+        <div className="border border-slate-200 rounded-xl overflow-x-auto bg-white">
+          <table className="w-full text-left text-sm whitespace-nowrap">
+            <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold text-xs">
+              <tr>
+                <th className="p-3">번호</th>
+                <th className="p-3">이름</th>
+                <th className="p-3">회</th>
+                <th className="p-3">학년</th>
+                <th className="p-3">나이</th>
+                <th className="p-3">성별</th>
+                <th className="p-3">연락처</th>
+                <th className="p-3">보호자</th>
+                <th className="p-3">보호자 연락처</th>
+                <th className="p-3">기존 신청 강좌</th>
+                <th className="p-3">상태</th>
+                <th className="p-3">메모</th>
+                <th className="p-3 text-center">관리</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 text-slate-700">
+              {participants.map((p, idx) => (
+                <tr key={p.id} className="hover:bg-slate-50">
+                  <td className="p-3 text-slate-400">{idx + 1}</td>
+                  <td className="p-3 font-bold text-slate-900">{p.name}</td>
+                  <td className="p-3">{p.group}</td>
+                  <td className="p-3">{p.grade}</td>
+                  <td className="p-3">{p.age}</td>
+                  <td className="p-3">{p.gender}</td>
+                  <td className="p-3">{p.phone}</td>
+                  <td className="p-3">{p.guardianName}</td>
+                  <td className="p-3">{p.guardianPhone}</td>
+                  <td className="p-3">{p.originalCourseName}</td>
+                  <td className="p-3">
+                    <span className={`px-2 py-1 rounded text-[11px] font-bold ${
+                      p.status === '참여중' ? 'bg-sky-100 text-sky-700' :
+                      p.status === '수료' ? 'bg-emerald-100 text-emerald-700' :
+                      p.status === '중단' ? 'bg-rose-100 text-rose-700' : 'bg-slate-100 text-slate-600'
+                    }`}>{p.status}</span>
+                  </td>
+                  <td className="p-3 truncate max-w-[100px]" title={p.memo}>{p.memo}</td>
+                  <td className="p-3 text-center flex justify-center gap-1">
+                    <button onClick={() => handleEdit(p)} className="text-sky-600 hover:bg-sky-50 p-1.5 rounded transition-colors"><Edit2 size={14}/></button>
+                    <button onClick={() => setDeleteTarget(p)} className="text-rose-500 hover:bg-rose-50 p-1.5 rounded transition-colors"><Trash2 size={14}/></button>
+                  </td>
+                </tr>
+              ))}
+              {participants.length === 0 && (
+                <tr>
+                  <td colSpan="13" className="p-6 text-center text-slate-500 font-bold">등록된 참여자가 없습니다.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {deleteTarget && (
+        <ConfirmModal
+          title="참여자 삭제"
+          message="해당 참여자를 심화반 명단에서 삭제하시겠습니까?"
+          onConfirm={handleDeleteConfirm}
+          onCancel={() => setDeleteTarget(null)}
+          confirmText="삭제하기"
+          confirmClass="bg-rose-500 hover:bg-rose-600"
+        />
+      )}
+    </div>
+  );
+};
+
+const AdminAdvancedPage = ({ navigate }) => {
+  const [classes, setClasses] = useState([]);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [filterDept, setFilterDept] = useState('전체');
+  const selectedGenId = getSelectedGenerationId();
+
+  useEffect(() => {
+    setClasses(JSON.parse(localStorage.getItem('phcaAdvancedClasses')) || []);
+  }, []);
+
+  const genFiltered = classes.filter(c => c.generationId === selectedGenId);
+  const filtered = genFiltered.filter(c => filterDept === '전체' || c.department === filterDept);
+
+  const totalClasses = genFiltered.length;
+  const activeClasses = genFiltered.filter(c => c.status === '운영중').length;
+  const endedClasses = genFiltered.filter(c => c.status === '종료').length;
+  const totalParticipants = genFiltered.reduce((sum, item) => sum + (item.participants?.length || 0), 0);
+  const deptCount = new Set(genFiltered.map(c => c.department).filter(Boolean)).size;
+
+  const deptOptions = ['전체', ...new Set(genFiltered.map(c => c.department).filter(Boolean))];
+
+  const handleDeleteConfirm = () => {
+    const updated = classes.filter(c => c.id !== deleteTarget.id);
+    setClasses(updated);
+    localStorage.setItem('phcaAdvancedClasses', JSON.stringify(updated));
+    setDeleteTarget(null);
+  };
+
+  const handleAdvancedExcelDownload = () => {
+    if (filtered.length === 0) {
+      alert("다운로드할 데이터가 없습니다.");
+      return;
+    }
+
+    const flatData = [];
+    filtered.forEach(cls => {
+      const parts = cls.participants || [];
+      if (parts.length === 0) {
+        flatData.push({
+          기수: cls.generationLabel || '',
+          부서: cls.department || '',
+          과: cls.section || '',
+          심화반명: cls.className || '',
+          담당자: cls.instructor || '',
+          '담당자 연락처': cls.contact || '',
+          회: cls.group || '',
+          대상: cls.target || '',
+          일정: cls.schedule || '',
+          장소: cls.location || '',
+          참여자명: '',
+          학년: '',
+          나이: '',
+          성별: '',
+          연락처: '',
+          보호자: '',
+          '보호자 연락처': '',
+          '기존 신청 강좌': '',
+          '참여 상태': '',
+          메모: ''
+        });
+      } else {
+        parts.forEach(p => {
+          flatData.push({
+            기수: cls.generationLabel || '',
+            부서: cls.department || '',
+            과: cls.section || '',
+            심화반명: cls.className || '',
+            담당자: cls.instructor || '',
+            '담당자 연락처': cls.contact || '',
+            회: cls.group || '',
+            대상: cls.target || '',
+            일정: cls.schedule || '',
+            장소: cls.location || '',
+            참여자명: p.name || '',
+            학년: p.grade || '',
+            나이: p.age || '',
+            성별: p.gender || '',
+            연락처: p.phone || '',
+            보호자: p.guardianName || '',
+            '보호자 연락처': p.guardianPhone || '',
+            '기존 신청 강좌': p.originalCourseName || '',
+            '참여 상태': p.status || '',
+            메모: p.memo || ''
+          });
+        });
+      }
+    });
+
+    const formatData = (item, index) => ({
+      번호: index + 1,
+      ...item
+    });
+
+    downloadExcelByDepartment(flatData, formatData, "PHCA_부서별_심화반_참여자명단", "부서");
+  };
+
+  return (
+    <div className="animate-fadeIn space-y-6">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4 mb-6">
+        <div>
+          <h2 className="text-2xl font-black text-slate-800">심화반 관리</h2>
+          <p className="text-slate-500 mt-1">PHCA 본 과정 이후 운영되는 심화반을 관리합니다.</p>
+        </div>
+        <div className="flex gap-3">
+          <button onClick={handleAdvancedExcelDownload} className="bg-emerald-500 text-white px-4 py-2.5 rounded-xl font-bold flex items-center shadow-sm hover:bg-emerald-600 transition-colors">
+            <Download size={18} className="mr-2" /> 엑셀 다운로드
+          </button>
+          <button onClick={() => navigate('/admin/advanced/new')} className="bg-sky-500 text-white px-4 py-2.5 rounded-xl font-bold flex items-center shadow-sm hover:bg-sky-600 transition-colors">
+            <Plus size={18} className="mr-2"/> 심화반 추가
+          </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+        <AdminStatCard title="전체 심화반 수" value={totalClasses} colorClass="text-slate-800" />
+        <AdminStatCard title="운영중 심화반 수" value={activeClasses} colorClass="text-blue-500" />
+        <AdminStatCard title="종료 심화반 수" value={endedClasses} colorClass="text-rose-500" />
+        <AdminStatCard title="총 참여 인원" value={`${totalParticipants}명`} colorClass="text-emerald-500" />
+        <AdminStatCard title="부서 수" value={`${deptCount}개`} colorClass="text-amber-500" />
+      </div>
+
+      <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col sm:flex-row items-start sm:items-center gap-4">
+        <label className="text-sm font-bold text-slate-500 whitespace-nowrap">부서 필터</label>
+        <select value={filterDept} onChange={e=>setFilterDept(e.target.value)} className="w-full sm:w-48 p-2.5 bg-slate-50 border border-slate-200 text-slate-700 rounded-xl focus:ring-2 focus:ring-sky-500 outline-none text-sm font-bold">
+          {deptOptions.map(o => <option key={o} value={o}>{o}</option>)}
+        </select>
+      </div>
+
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-x-auto">
+        <table className="w-full text-left text-sm whitespace-nowrap">
+          <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase text-xs">
+            <tr>
+              <th className="p-4">기수</th>
+              <th className="p-4">부서</th>
+              <th className="p-4">과</th>
+              <th className="p-4">심화반명</th>
+              <th className="p-4">담당자</th>
+              <th className="p-4">연락처</th>
+              <th className="p-4">회</th>
+              <th className="p-4">대상</th>
+              <th className="p-4">일정</th>
+              <th className="p-4">장소</th>
+              <th className="p-4">참여 인원</th>
+              <th className="p-4">상태</th>
+              <th className="p-4 text-center">관리</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100 text-slate-700 font-medium">
+            {filtered.map(cls => (
+              <tr key={cls.id} className="hover:bg-slate-50 transition-colors">
+                <td className="p-4 text-slate-500">{cls.generationLabel}</td>
+                <td className="p-4">{cls.department}</td>
+                <td className="p-4">{cls.section}</td>
+                <td className="p-4 font-bold text-slate-900">{cls.className}</td>
+                <td className="p-4 text-sky-600">{cls.instructor}</td>
+                <td className="p-4">{cls.contact}</td>
+                <td className="p-4">{cls.group}</td>
+                <td className="p-4">{cls.target}</td>
+                <td className="p-4">{cls.schedule}</td>
+                <td className="p-4">{cls.location}</td>
+                <td className="p-4"><span className="font-bold text-sky-600">{cls.participants?.length || 0}명</span></td>
+                <td className="p-4"><StatusBadge status={cls.status} /></td>
+                <td className="p-4 text-center flex justify-center gap-2 items-center">
+                  <button onClick={() => navigate(`/admin/advanced/${cls.id}/participants`)} className="bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-800 px-3 py-1.5 rounded-lg transition-colors text-xs font-bold border border-slate-200">참여자 보기</button>
+                  <button onClick={() => navigate(`/admin/advanced/${cls.id}/edit`)} className="text-sky-600 hover:bg-sky-50 p-2 rounded-lg transition-colors"><Edit2 size={16}/></button>
+                  <button onClick={() => setDeleteTarget(cls)} className="text-rose-500 hover:bg-rose-50 p-2 rounded-lg transition-colors"><Trash2 size={16}/></button>
+                </td>
+              </tr>
+            ))}
+            {filtered.length === 0 && (
+              <tr>
+                <td colSpan="13" className="p-8 text-center text-slate-500 font-bold">등록된 심화반이 없습니다.</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {deleteTarget && (
+        <ConfirmModal
+          title="심화반 삭제"
+          message="해당 심화반 정보를 삭제하시겠습니까?"
+          onConfirm={handleDeleteConfirm}
+          onCancel={() => setDeleteTarget(null)}
+          confirmText="삭제하기"
+          confirmClass="bg-rose-500 hover:bg-rose-600"
+        />
+      )}
+    </div>
+  );
+};
+
+const AdminAdvancedForm = ({ isEdit, initialData, onCancel, onSave }) => {
+  const gens = getGenerations();
+  const selectedGenId = getSelectedGenerationId();
+  const defaultGen = gens.find(g => g.id === selectedGenId) || gens[0];
+
+  const [formData, setFormData] = useState(() => {
+    const c = initialData || {};
+    return {
+      id: c.id || `advanced-${Date.now()}`,
+      generationId: c.generationId || defaultGen.id,
+      generationLabel: c.generationLabel || defaultGen.label,
+      generationName: c.generationName || defaultGen.name,
+      department: c.department || '',
+      section: c.section || '',
+      className: c.className || '',
+      group: c.group || '',
+      target: c.target || '',
+      instructor: c.instructor || c.relatedCourseName || '',
+      contact: c.contact || '',
+      schedule: c.schedule || '',
+      location: c.location || '',
+      status: c.status || '운영예정',
+      startDate: c.startDate || '',
+      endDate: c.endDate || '',
+      memo: c.memo || ''
+    };
+  });
+  const [showConfirm, setShowConfirm] = useState(false);
+
+  // 연락처 자동 포맷팅 (010-nnnn-nnnn)
+  const formatPhone = (value) => {
+    const numbers = value.replace(/\D/g, '');
+    if (numbers.length <= 3) return numbers;
+    if (numbers.length <= 7) return `${numbers.slice(0, 3)}-${numbers.slice(3)}`;
+    return `${numbers.slice(0, 3)}-${numbers.slice(3, 7)}-${numbers.slice(7, 11)}`;
+  };
+
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    if (name === 'contact') {
+      setFormData(prev => ({ ...prev, [name]: formatPhone(value) }));
+    } else {
+      setFormData(prev => ({ ...prev, [name]: value }));
+    }
+  };
+
+  const handleGenChange = (e) => {
+    const gen = gens.find(g => g.id === e.target.value);
+    if (gen) {
+      setFormData(prev => ({ ...prev, generationId: gen.id, generationLabel: gen.label, generationName: gen.name }));
+    }
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    setShowConfirm(true);
+  };
+
+  const handleConfirmSave = () => {
+    onSave(formData);
   };
 
   const inputClass = "w-full p-3 bg-slate-50 border border-slate-200 text-slate-800 rounded-xl focus:ring-2 focus:ring-sky-500 outline-none transition-all font-medium mt-1";
+  const labelClass = "block text-sm font-bold text-slate-600 mb-1 mt-4";
+  const sectionClass = "font-black text-slate-800 mb-4 mt-10 border-b border-slate-200 pb-2 text-lg";
 
   return (
-    <div className="animate-fadeIn max-w-2xl">
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="text-2xl font-black text-slate-800">운영 기수 설정</h2>
+    <div className="animate-fadeIn max-w-4xl mx-auto pb-10">
+      <div className="flex justify-between items-end mb-6">
+        <div>
+          <h2 className="text-2xl font-black text-slate-800">{isEdit ? "심화반 수정" : "심화반 추가"}</h2>
+          <p className="text-slate-500 mt-1">{isEdit ? "등록된 심화반 정보를 수정합니다." : "PHCA 수료 후 진행되는 심화반 정보를 등록합니다."}</p>
+        </div>
+        <button onClick={onCancel} className="px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-xl font-bold hover:bg-slate-50 transition-colors shadow-sm text-sm flex items-center">
+          목록으로 돌아가기
+        </button>
       </div>
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8">
-        <div className="space-y-6">
-          <div><label className="text-sm font-bold text-slate-600">기수 ID</label><input type="text" value={gen.id} disabled className={inputClass + ' opacity-60'} /></div>
-          <div><label className="text-sm font-bold text-slate-600">기수명 (사용자 화면 노출)</label><input type="text" value={gen.name} onChange={e=>setGen({...gen, name:e.target.value})} className={inputClass} /></div>
-          <div className="grid grid-cols-2 gap-4">
-            <div><label className="text-sm font-bold text-slate-600">연도</label><input type="number" value={gen.year} onChange={e=>setGen({...gen, year:e.target.value})} className={inputClass} /></div>
-            <div><label className="text-sm font-bold text-slate-600">시즌</label><input type="text" value={gen.season} onChange={e=>setGen({...gen, season:e.target.value})} className={inputClass} /></div>
+
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 sm:p-10">
+        <form onSubmit={handleSubmit}>
+          <h4 className={`${sectionClass} mt-0`}>기본 정보</h4>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2">
+            <div>
+              <label className={labelClass}>기수 *</label>
+              <select name="generationId" value={formData.generationId} onChange={handleGenChange} className={inputClass} required>
+                {gens.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className={labelClass}>상태 *</label>
+              <select name="status" value={formData.status} onChange={handleChange} className={inputClass} required>
+                <option value="운영중">운영중</option>
+                <option value="운영예정">운영예정</option>
+                <option value="종료">종료</option>
+                <option value="보류">보류</option>
+              </select>
+            </div>
+            <div><label className={labelClass}>부서</label><input type="text" name="department" value={formData.department} onChange={handleChange} className={inputClass} /></div>
+            <div><label className={labelClass}>과</label><input type="text" name="section" value={formData.section} onChange={handleChange} className={inputClass} /></div>
+            <div className="sm:col-span-2"><label className={labelClass}>심화반명 *</label><input type="text" name="className" value={formData.className} onChange={handleChange} className={inputClass} required /></div>
+            <div><label className={labelClass}>담당자</label><input type="text" name="instructor" value={formData.instructor} onChange={handleChange} className={inputClass} /></div>
+            <div><label className={labelClass}>연락처</label><input type="tel" name="contact" value={formData.contact} onChange={handleChange} className={inputClass} placeholder="010-0000-0000" /></div>
           </div>
-          <div>
-            <label className="text-sm font-bold text-slate-600">상태</label>
-            <select value={gen.status} onChange={e=>setGen({...gen, status:e.target.value})} className={inputClass}>
-              <option value="모집중">모집중</option>
-              <option value="운영중">운영중</option>
-              <option value="종료">종료</option>
-            </select>
+          
+          <h4 className={sectionClass}>운영 정보</h4>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2">
+            <div><label className={labelClass}>회</label><input type="text" name="group" value={formData.group} onChange={handleChange} className={inputClass} /></div>
+            <div className="sm:col-span-2"><label className={labelClass}>대상</label><input type="text" name="target" value={formData.target} onChange={handleChange} className={inputClass} placeholder="예: 중1~고3 누구나 (자유롭게 입력)" /></div>
+            <div><label className={labelClass}>일정</label><input type="text" name="schedule" value={formData.schedule} onChange={handleChange} className={inputClass} /></div>
+            <div><label className={labelClass}>장소</label><input type="text" name="location" value={formData.location} onChange={handleChange} className={inputClass} /></div>
+            <div className="sm:col-span-2 hidden sm:block"></div>
+            <div><label className={labelClass}>시작일</label><input type="date" name="startDate" value={formData.startDate} onChange={handleChange} className={inputClass} /></div>
+            <div><label className={labelClass}>종료일</label><input type="date" name="endDate" value={formData.endDate} onChange={handleChange} className={inputClass} /></div>
+            <div className="sm:col-span-2"><label className={labelClass}>메모</label><textarea name="memo" value={formData.memo} onChange={handleChange} rows="3" className={inputClass}></textarea></div>
           </div>
-          <div className="pt-4 border-t border-slate-100 flex justify-end">
-            <button onClick={handleSave} className="bg-slate-800 text-white px-8 py-3 rounded-xl font-bold hover:bg-slate-900 transition-all shadow-sm">설정 저장</button>
+          
+          <div className="flex justify-end gap-3 pt-8 mt-10 border-t border-slate-100">
+            <button type="button" onClick={onCancel} className="px-8 py-3.5 rounded-xl font-bold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors">취소</button>
+            <button type="submit" className="px-8 py-3.5 rounded-xl font-bold bg-sky-500 text-white hover:bg-sky-600 transition-colors shadow-sm">{isEdit ? '수정하기' : '저장하기'}</button>
           </div>
+        </form>
+      </div>
+      {showConfirm && (
+        <ConfirmModal
+          title={isEdit ? "심화반 수정" : "심화반 추가"}
+          message={isEdit ? "심화반 정보를 수정하시겠습니까?" : "새 심화반을 추가하시겠습니까?"}
+          onConfirm={handleConfirmSave}
+          onCancel={() => setShowConfirm(false)}
+          confirmText={isEdit ? "수정하기" : "추가하기"}
+        />
+      )}
+    </div>
+  );
+};
+
+const AdminAdvancedCreatePage = ({ navigate }) => {
+  const handleSave = (parsedData) => {
+    const classes = JSON.parse(localStorage.getItem('phcaAdvancedClasses')) || [];
+    const updated = [parsedData, ...classes];
+    localStorage.setItem('phcaAdvancedClasses', JSON.stringify(updated));
+    navigate('/admin/advanced');
+  };
+  return <AdminAdvancedForm isEdit={false} initialData={{}} onCancel={() => navigate('/admin/advanced')} onSave={handleSave} />;
+};
+
+const AdminAdvancedEditPage = ({ advancedId, navigate }) => {
+  const classes = JSON.parse(localStorage.getItem('phcaAdvancedClasses')) || [];
+  const advClass = classes.find(c => c.id === advancedId);
+
+  if (!advClass) {
+    return (
+      <div className="py-20 text-center bg-white rounded-3xl border border-slate-200 shadow-sm max-w-2xl mx-auto mt-10">
+        <AlertCircle size={48} className="mx-auto text-slate-400 mb-4" />
+        <h2 className="text-2xl font-black text-slate-800 mb-2">해당 심화반을 찾을 수 없습니다.</h2>
+        <p className="text-slate-500 mb-8 font-medium">정보가 삭제되었거나 잘못된 접근입니다.</p>
+        <button onClick={() => navigate('/admin/advanced')} className="px-6 py-3 bg-slate-800 text-white rounded-xl font-bold hover:bg-slate-900 transition-all shadow-sm">목록으로 돌아가기</button>
+      </div>
+    );
+  }
+
+  const handleSave = (parsedData) => {
+    const updated = classes.map(c => c.id === parsedData.id ? parsedData : c);
+    localStorage.setItem('phcaAdvancedClasses', JSON.stringify(updated));
+    navigate('/admin/advanced');
+  };
+
+  return <AdminAdvancedForm isEdit={true} initialData={advClass} onCancel={() => navigate('/admin/advanced')} onSave={handleSave} />;
+};
+
+const AdminMainVisualPage = () => {
+  const selectedGenId = getSelectedGenerationId();
+  const gens = getGenerations();
+  const selectedGen = gens.find(g => g.id === selectedGenId) || gens[0];
+
+  const defaultState = {
+    generationId: selectedGen.id,
+    title: `PETER HEAVENLY \n CULTURE ACADEMY`,
+    subtitle: `여름방학을 배움과 성장의 시간으로!\n${selectedGen.name} 피터하늘문화 아카데미에 초대합니다!`,
+    imageUrl: '/images/img_01.jpg',
+    imageAlt: 'PHCA 메인 이미지',
+    recruitSchedule: '7월 12일(일) ~ 7월 22일(수)',
+    operationSchedule: '7월 25일(토) ~ 8월 23일(토)',
+    recruitTarget: '유년 회원',
+    operationLocation: '베드로지파 광주교회 각 층'
+  };
+
+  const [formData, setFormData] = useState(defaultState);
+  const [showConfirm, setShowConfirm] = useState(false);
+
+  useEffect(() => {
+    const visuals = JSON.parse(localStorage.getItem('phcaMainVisuals')) || [];
+    const currentVisual = visuals.find(v => v.generationId === selectedGen.id);
+    if (currentVisual) {
+      setFormData({
+        ...defaultState,
+        ...currentVisual
+      });
+    } else {
+      setFormData({
+        ...defaultState,
+        generationId: selectedGen.id,
+        subtitle: `여름방학을 배움과 성장의 시간으로!\n${selectedGen.name} 피터하늘문화 아카데미에 초대합니다!`
+      });
+    }
+  }, [selectedGen.id]);
+
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleReset = () => {
+    setFormData({
+      ...defaultState,
+      generationId: selectedGen.id,
+      subtitle: `여름방학을 배움과 성장의 시간으로!\n${selectedGen.name} 피터하늘문화 아카데미에 초대합니다!`
+    });
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    setShowConfirm(true);
+  };
+
+  const handleConfirmSave = () => {
+    const visuals = JSON.parse(localStorage.getItem('phcaMainVisuals')) || [];
+    const existingIndex = visuals.findIndex(v => v.generationId === formData.generationId);
+    if (existingIndex >= 0) {
+      visuals[existingIndex] = formData;
+    } else {
+      visuals.push(formData);
+    }
+    localStorage.setItem('phcaMainVisuals', JSON.stringify(visuals));
+    setShowConfirm(false);
+  };
+
+  const inputClass = "w-full p-3 bg-slate-50 border border-slate-200 text-slate-800 rounded-xl focus:ring-2 focus:ring-sky-500 outline-none transition-all font-medium mt-1";
+  const labelClass = "block text-sm font-bold text-slate-600 mb-1 mt-4";
+  const sectionClass = "font-black text-slate-800 mb-4 mt-8 border-b border-slate-200 pb-2 text-lg";
+
+  return (
+    <div className="animate-fadeIn max-w-4xl mx-auto pb-10">
+      <div className="flex justify-between items-end mb-6">
+        <div>
+          <h2 className="text-2xl font-black text-slate-800">메인 관리</h2>
+          <p className="text-slate-500 mt-1">[{selectedGen.name}] 사용자 메인 화면의 정보와 이미지를 관리합니다.</p>
         </div>
       </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div>
+          <div className="sticky top-24">
+            <h4 className="font-black text-slate-800 mb-4 text-lg">미리보기</h4>
+            <div className="rounded-[2rem] overflow-hidden shadow-xl shadow-slate-200/50 border border-slate-100 relative h-[450px] flex items-center justify-center">
+              <img src={formData.imageUrl || '/images/img_01.jpg'} alt={formData.imageAlt} className="absolute inset-0 w-full h-full object-cover z-0" />
+              <div className="absolute inset-0 bg-gradient-to-b from-white/60 via-white/40 to-sky-50/60 backdrop-blur-[2px] z-10"></div>
+              
+              <div className="relative z-20 text-center px-4 w-full">
+                <h1 className="text-2xl sm:text-3xl font-black text-slate-900 uppercase tracking-tighter leading-tight mb-4 whitespace-pre-line drop-shadow-sm">
+                  {formData.title || '제목'}
+                </h1>
+                <p className="text-xs sm:text-sm text-slate-800 font-bold mb-6 whitespace-pre-line leading-relaxed">
+                  {formData.subtitle || '서브 문구'}
+                </p>
+                <div className="flex flex-col gap-2 px-8">
+                  <button className="bg-sky-500 text-white font-black py-3 rounded-full text-xs shadow-md pointer-events-none">
+                    수강 신청하기
+                  </button>
+                  <button className="bg-white/90 backdrop-blur-sm text-slate-800 font-black py-3 rounded-full text-xs border border-slate-100 shadow-md pointer-events-none">
+                    강좌 둘러보기
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 sm:p-8">
+          <form onSubmit={handleSubmit}>
+            <h4 className={`${sectionClass} mt-0`}>텍스트 설정</h4>
+            <div>
+              <label className={labelClass} style={{marginTop: 0}}>메인 제목</label>
+              <textarea name="title" value={formData.title} onChange={handleChange} rows="2" className={inputClass} required></textarea>
+            </div>
+            <div>
+              <label className={labelClass}>서브 문구</label>
+              <textarea name="subtitle" value={formData.subtitle} onChange={handleChange} rows="3" className={inputClass} required></textarea>
+            </div>
+
+            <h4 className={sectionClass}>이미지 설정</h4>
+            <div className="mb-6">
+              <ImageUploadBox 
+                label="메인 이미지 (파일 업로드 또는 붙여넣기)" 
+                multiple={false} 
+                images={formData.imageUrl ? [formData.imageUrl] : []} 
+                onChange={(newImages) => setFormData(prev => ({ ...prev, imageUrl: newImages[0] || '' }))} 
+              />
+              <p className="text-xs text-slate-400 mt-2">* 이미지를 업로드하지 않으면 기본 이미지가 노출됩니다.</p>
+            </div>
+            <div>
+              <label className={labelClass}>이미지 설명 문구 (Alt)</label>
+              <input type="text" name="imageAlt" value={formData.imageAlt} onChange={handleChange} className={inputClass} required />
+            </div>
+
+            <h4 className={sectionClass}>운영 정보 설정</h4>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className={labelClass} style={{marginTop: 0}}>모집 일정</label>
+                <input type="text" name="recruitSchedule" value={formData.recruitSchedule} onChange={handleChange} className={inputClass} required />
+              </div>
+              <div>
+                <label className={labelClass} style={{marginTop: 0}}>운영 일정</label>
+                <input type="text" name="operationSchedule" value={formData.operationSchedule} onChange={handleChange} className={inputClass} required />
+              </div>
+              <div>
+                <label className={labelClass} style={{marginTop: 0}}>모집 대상</label>
+                <input type="text" name="recruitTarget" value={formData.recruitTarget} onChange={handleChange} className={inputClass} required />
+              </div>
+              <div>
+                <label className={labelClass} style={{marginTop: 0}}>운영 장소</label>
+                <input type="text" name="operationLocation" value={formData.operationLocation} onChange={handleChange} className={inputClass} required />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 pt-8 mt-8 border-t border-slate-100">
+              <button type="button" onClick={handleReset} className="px-6 py-3 rounded-xl font-bold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors text-sm">초기화</button>
+              <button type="submit" className="px-6 py-3 rounded-xl font-bold bg-sky-500 text-white hover:bg-sky-600 transition-colors shadow-sm text-sm">저장하기</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      {showConfirm && (
+        <ConfirmModal
+          title="메인 사진 저장"
+          message="메인 페이지 사진 정보를 저장하시겠습니까?"
+          onConfirm={handleConfirmSave}
+          onCancel={() => setShowConfirm(false)}
+          confirmText="저장하기"
+        />
+      )}
+    </div>
+  );
+};
+
+const AdminGenerationPage = () => {
+  const [gens, setGens] = useState(getGenerations());
+  const [selectedId, setSelectedId] = useState(getSelectedGenerationId());
+  const [isEditing, setIsEditing] = useState(false);
+  const [formData, setFormData] = useState(null);
+  const [showConfirm, setShowConfirm] = useState(false);
+
+  const apps = JSON.parse(localStorage.getItem('phca_applications') || '[]');
+  const courses = JSON.parse(localStorage.getItem('phcaCourses') || '[]');
+
+  const getStats = (genId) => {
+    return {
+      appsCount: apps.filter(a => a.generationId === genId || (!a.generationId && genId === 'phca-4')).length,
+      coursesCount: courses.filter(c => c.generationId === genId || (!c.generationId && genId === 'phca-4')).length
+    };
+  };
+
+  const handleSelect = (id) => {
+    setSelectedId(id);
+    setSelectedGenerationId(id);
+    window.dispatchEvent(new Event('phca-generation-changed'));
+  };
+
+  const handleSetCurrent = (id) => {
+    localStorage.setItem('phcaCurrentGenerationId', id);
+    const updated = gens.map(g => ({ ...g, isCurrent: g.id === id }));
+    setGens(updated);
+    saveGenerations(updated);
+    window.dispatchEvent(new Event('phca-generation-changed'));
+  };
+
+  const handleEdit = (gen) => {
+    setFormData(gen);
+    setIsEditing(true);
+  };
+
+  const handleNew = () => {
+    setFormData({
+      id: `phca-${gens.length + 1}`,
+      label: `${gens.length + 1}기`,
+      name: `PHCA ${gens.length + 1}기`,
+      number: gens.length + 1,
+      year: new Date().getFullYear(),
+      season: '여름방학',
+      status: '운영예정',
+      isCurrent: false,
+      startDate: '',
+      endDate: '',
+      memo: ''
+    });
+    setIsEditing(true);
+  };
+
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleSave = (e) => {
+    e.preventDefault();
+    setShowConfirm(true);
+  };
+
+  const handleConfirmSave = () => {
+    let updated;
+    if (gens.find(g => g.id === formData.id)) {
+      updated = gens.map(g => g.id === formData.id ? formData : g);
+    } else {
+      updated = [...gens, formData];
+    }
+    setGens(updated);
+    saveGenerations(updated);
+    setIsEditing(false);
+    setShowConfirm(false);
+  };
+
+  const inputClass = "w-full p-3 bg-slate-50 border border-slate-200 text-slate-800 rounded-xl focus:ring-2 focus:ring-sky-500 outline-none transition-all font-medium mt-1";
+  const todayDate = new Date().toISOString().split('T')[0];
+  const currentYear = new Date().getFullYear();
+  const yearOptions = Array.from({length: 10}, (_, i) => currentYear - 3 + i);
+
+  if (isEditing) {
+    return (
+      <div className="animate-fadeIn max-w-2xl">
+        <div className="flex justify-between items-center mb-6">
+          <div>
+            <h2 className="text-2xl font-black text-slate-800">{formData.id.startsWith(`phca-${gens.length + 1}`) ? "새 기수 추가" : "기수 정보 수정"}</h2>
+          </div>
+        </div>
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8">
+          <form onSubmit={handleSave} className="space-y-6">
+            <div className="grid grid-cols-2 gap-4">
+              <div><label className="text-sm font-bold text-slate-600">기수 ID</label><input type="text" value={formData.id} disabled className={inputClass + ' opacity-60'} /></div>
+              <div><label className="text-sm font-bold text-slate-600">Label (예: 4기)</label><input type="text" name="label" value={formData.label} onChange={handleChange} className={inputClass} required /></div>
+            </div>
+            <div><label className="text-sm font-bold text-slate-600">기수명 (사용자 화면 노출)</label><input type="text" name="name" value={formData.name} onChange={handleChange} className={inputClass} required /></div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-sm font-bold text-slate-600">연도</label>
+                <select name="year" value={formData.year} onChange={handleChange} className={inputClass} required>
+                  {yearOptions.map(y => <option key={y} value={y}>{y}년</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-sm font-bold text-slate-600">시즌</label>
+                <select name="season" value={formData.season} onChange={handleChange} className={inputClass}>
+                  <option value="여름방학">여름방학</option>
+                  <option value="겨울방학">겨울방학</option>
+                </select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div><label className="text-sm font-bold text-slate-600">시작일</label><input type="date" name="startDate" value={formData.startDate} min={todayDate} onChange={handleChange} className={inputClass} /></div>
+              <div><label className="text-sm font-bold text-slate-600">종료일</label><input type="date" name="endDate" value={formData.endDate} min={formData.startDate || todayDate} onChange={handleChange} className={inputClass} /></div>
+            </div>
+            <div>
+              <label className="text-sm font-bold text-slate-600">상태</label>
+              <select name="status" value={formData.status} onChange={handleChange} className={inputClass}>
+                <option value="모집예정">모집예정</option>
+                <option value="모집중">모집중</option>
+                <option value="운영중">운영중</option>
+                <option value="종료">종료</option>
+                <option value="운영예정">운영예정</option>
+              </select>
+            </div>
+            <div><label className="text-sm font-bold text-slate-600">메모</label><textarea name="memo" value={formData.memo} onChange={handleChange} rows="2" className={inputClass}></textarea></div>
+            
+            <div className="pt-4 border-t border-slate-100 flex justify-end gap-3">
+              <button type="button" onClick={() => setIsEditing(false)} className="px-6 py-2.5 rounded-xl font-bold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors">취소</button>
+              <button type="submit" className="bg-sky-500 text-white px-8 py-2.5 rounded-xl font-bold hover:bg-sky-600 transition-all shadow-sm">저장하기</button>
+            </div>
+          </form>
+        </div>
+        {showConfirm && (
+          <ConfirmModal
+            title={formData.id.startsWith(`phca-${gens.length + 1}`) ? "기수 추가" : "기수 정보 수정"}
+            message="입력한 기수 정보를 저장하시겠습니까?"
+            onConfirm={handleConfirmSave}
+            onCancel={() => setShowConfirm(false)}
+            confirmText="저장하기"
+          />
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="animate-fadeIn space-y-6">
+      <div className="flex justify-between items-end mb-6">
+        <div>
+          <h2 className="text-2xl font-black text-slate-800">기수 설정</h2>
+          <p className="text-slate-500 mt-1">운영 중인 기수를 관리하고 선택합니다.</p>
+        </div>
+        <button onClick={handleNew} className="bg-sky-500 text-white px-4 py-2.5 rounded-xl font-bold flex items-center shadow-sm hover:bg-sky-600 transition-colors">
+          <Plus size={18} className="mr-2"/> 새 기수 추가
+        </button>
+      </div>
+
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-x-auto">
+        <table className="w-full text-left text-sm whitespace-nowrap">
+          <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase text-xs">
+            <tr>
+              <th className="p-4">기수</th>
+              <th className="p-4">연도</th>
+              <th className="p-4">시즌</th>
+              <th className="p-4">상태</th>
+              <th className="p-4">신청자 수</th>
+              <th className="p-4">강좌 수</th>
+              <th className="p-4">현재 기수</th>
+              <th className="p-4 text-center">관리</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100 text-slate-700 font-medium">
+            {gens.map(g => {
+              const stats = getStats(g.id);
+              const isSelected = g.id === selectedId;
+              return (
+                <tr key={g.id} onClick={() => handleSelect(g.id)} className={`cursor-pointer transition-colors ${isSelected ? 'bg-sky-50' : 'hover:bg-slate-50'}`}>
+                  <td className="p-4 font-bold text-slate-900 flex items-center gap-2">
+                    {g.label}
+                    {isSelected && <span className="bg-sky-500 text-white text-[10px] px-1.5 py-0.5 rounded font-bold">선택됨</span>}
+                  </td>
+                  <td className="p-4">{g.year}</td>
+                  <td className="p-4">{g.season}</td>
+                  <td className="p-4">{g.status}</td>
+                  <td className="p-4">{stats.appsCount}명</td>
+                  <td className="p-4">{stats.coursesCount}개</td>
+                  <td className="p-4">
+                    {g.isCurrent ? <span className="bg-emerald-100 text-emerald-600 px-2 py-1 rounded text-xs font-bold">현재 기수</span> : '-'}
+                  </td>
+                  <td className="p-4 text-center flex justify-center gap-2" onClick={e => e.stopPropagation()}>
+                    {!g.isCurrent && (
+                      <button onClick={() => handleSetCurrent(g.id)} className="text-emerald-600 hover:bg-emerald-50 px-2 py-1 rounded-lg transition-colors text-xs font-bold border border-emerald-200">현재기수로 설정</button>
+                    )}
+                    <button onClick={() => handleEdit(g)} className="text-sky-600 hover:bg-sky-50 p-2 rounded-lg transition-colors" title="수정"><Edit2 size={16}/></button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-sm text-slate-500">
+        * 행을 클릭하면 해당 기수가 선택되어 모든 관리자 페이지에 반영됩니다.
+      </p>
     </div>
   );
 };
@@ -3043,6 +4506,8 @@ export default function App() {
       if (!localStorage.getItem('phcaAdminAuth')) return <AdminLoginPage navigate={navigate} />;
       
       const adminCourseEditMatch = currentPath.match(/^\/admin\/courses\/([^\/]+)\/edit$/);
+      const adminAdvancedEditMatch = currentPath.match(/^\/admin\/advanced\/([^\/]+)\/edit$/);
+      const adminAdvancedParticipantsMatch = currentPath.match(/^\/admin\/advanced\/([^\/]+)\/participants$/);
 
       return (
         <AdminLayout navigate={navigate} onLogout={() => { localStorage.removeItem('phcaAdminAuth'); navigate('/admin/login'); }}>
@@ -3053,6 +4518,11 @@ export default function App() {
           {adminCourseEditMatch && <AdminCourseEditPage courseId={adminCourseEditMatch[1]} navigate={navigate} />}
           {currentPath === '/admin/notices' && <AdminNoticesPage />}
           {currentPath === '/admin/faqs' && <AdminFaqsPage />}
+          {currentPath === '/admin/advanced' && <AdminAdvancedPage navigate={navigate} />}
+          {currentPath === '/admin/advanced/new' && <AdminAdvancedCreatePage navigate={navigate} />}
+          {adminAdvancedEditMatch && <AdminAdvancedEditPage advancedId={adminAdvancedEditMatch[1]} navigate={navigate} />}
+          {adminAdvancedParticipantsMatch && <AdminAdvancedParticipantPage advancedId={adminAdvancedParticipantsMatch[1]} navigate={navigate} />}
+          {currentPath === '/admin/main-visual' && <AdminMainVisualPage />}
           {currentPath === '/admin/generation' && <AdminGenerationPage />}
         </AdminLayout>
       );
